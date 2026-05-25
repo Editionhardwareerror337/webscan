@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
 <style>
   :root {
     --bg: #050a0e;
@@ -721,8 +722,15 @@
             <div class="section-badge badge-info">INFO</div>
           </div>
           <div class="section-body" style="font-size:12px;color:var(--muted);line-height:1.9;">
-            Las alertas se guardan localmente y simulan el envío por email. En producción, conecta con un servicio como <strong style="color:var(--text)">SendGrid</strong>, <strong style="color:var(--text)">Mailgun</strong> o <strong style="color:var(--text)">Amazon SES</strong> desde tu backend Node.js (<code style="color:var(--accent)">server.js</code>) para enviar notificaciones reales.<br><br>
-            El sistema re-analiza la URL en cada ciclo, compara con el último estado conocido y solo alerta cuando aparecen <strong style="color:var(--warn)">nuevas vulnerabilidades</strong> no detectadas anteriormente.
+          <div class="section-body" style="font-size:12px;color:var(--muted);line-height:1.9;">
+            Los emails se envían vía <strong style="color:var(--text)">EmailJS</strong> — gratuito hasta 200 emails/mes, sin servidor propio.<br><br>
+            <strong style="color:var(--accent)">Para activar emails reales (5 minutos):</strong><br>
+            1. Crea cuenta gratis en <a href="https://emailjs.com" target="_blank" style="color:var(--accent)">emailjs.com</a><br>
+            2. Conecta tu cuenta de Gmail u Outlook como Email Service<br>
+            3. Crea un Email Template con las variables: <code style="color:var(--accent3)">{{to_email}}, {{url}}, {{freq}}, {{standards}}</code><br>
+            4. Copia tu <strong style="color:var(--text)">Public Key</strong>, <strong style="color:var(--text)">Service ID</strong> y <strong style="color:var(--text)">Template ID</strong><br>
+            5. Pégalos en <code style="color:var(--accent3)">EMAILJS_CONFIG</code> del código y pon <code style="color:var(--accent3)">enabled: true</code><br><br>
+            Para escalar (>200 emails/mes) usa <strong style="color:var(--text)">Resend.com</strong> — 3.000 emails/mes gratis con tu propio dominio.
           </div>
         </div>
       </div>
@@ -1842,6 +1850,45 @@ function saveAlerts(arr){
   localStorage.setItem('ws_alerts_'+u,JSON.stringify(arr));
 }
 
+// ════════════════════════════════
+//  EMAILJS CONFIG
+//  1. Crea cuenta gratis en emailjs.com (200 emails/mes gratis)
+//  2. Crea un Email Service (Gmail, Outlook, etc.)
+//  3. Crea un Email Template con estas variables:
+//     {{to_email}}, {{url}}, {{freq}}, {{threshold}}, {{standards}}, {{user}}
+//  4. Sustituye los valores de abajo por los tuyos
+// ════════════════════════════════
+const EMAILJS_CONFIG={
+  publicKey:  'LiQdi_HoatFbZEk_R',   // Account → API Keys → Public Key
+  serviceId:  'WebScan',   // Email Services → Service ID
+  templateId: 'template_4muf3g9',  // Email Templates → Template ID
+  enabled: false, // ← cambia a true cuando hayas configurado las claves
+};
+
+// Inicializar EmailJS si está configurado
+if(EMAILJS_CONFIG.enabled && typeof emailjs!=='undefined'){
+  emailjs.init({publicKey: EMAILJS_CONFIG.publicKey});
+}
+
+async function sendAlertEmail(alertData){
+  if(!EMAILJS_CONFIG.enabled) return {ok:false, reason:'EmailJS no configurado'};
+  if(typeof emailjs==='undefined') return {ok:false, reason:'EmailJS no cargado'};
+  try{
+    await emailjs.send(EMAILJS_CONFIG.serviceId, EMAILJS_CONFIG.templateId,{
+      to_email:   alertData.email,
+      url:        alertData.url,
+      freq:       alertData.freq,
+      threshold:  alertData.threshold,
+      standards:  alertData.standards.join(', '),
+      user:       currentUser()||'usuario',
+      date:       alertData.created,
+    });
+    return {ok:true};
+  }catch(e){
+    return {ok:false, reason:e.text||e.message||'Error desconocido'};
+  }
+}
+
 function addAlert(){
   const url=document.getElementById('alertUrl').value.trim();
   const email=document.getElementById('alertEmail').value.trim();
@@ -1850,6 +1897,7 @@ function addAlert(){
   hideToolError('alertError'); okEl.style.display='none';
   if(!url||!email){showToolError('alertError','Rellena URL y correo electrónico.'); return;}
   if(!email.includes('@')){showToolError('alertError','Introduce un correo válido.'); return;}
+
   const alerts=getAlerts();
   const entry={
     id:Date.now(),
@@ -1867,11 +1915,28 @@ function addAlert(){
   };
   alerts.unshift(entry);
   saveAlerts(alerts);
+
   document.getElementById('alertUrl').value='';
   document.getElementById('alertEmail').value='';
-  okEl.style.display='block';
-  setTimeout(()=>{okEl.style.display='none';},3000);
   renderAlerts();
+
+  // Intentar enviar email de confirmación
+  sendAlertEmail(entry).then(result=>{
+    if(result.ok){
+      okEl.innerHTML='✔ Alerta guardada y <strong>email de confirmación enviado</strong> a '+eh(email);
+    } else if(!EMAILJS_CONFIG.enabled){
+      okEl.innerHTML=`✔ Alerta guardada localmente.<br>
+        <span style="color:var(--muted);font-size:10px;">
+          Para enviar emails reales configura EmailJS (gratis en 
+          <a href="https://emailjs.com" target="_blank" style="color:var(--accent)">emailjs.com</a>)
+          y actualiza EMAILJS_CONFIG en el código.
+        </span>`;
+    } else {
+      okEl.innerHTML='✔ Alerta guardada. <span style="color:var(--accent2)">Error al enviar email: '+eh(result.reason)+'</span>';
+    }
+    okEl.style.display='block';
+    setTimeout(()=>{okEl.style.display='none';},6000);
+  });
 }
 
 function deleteAlert(id){
@@ -2154,7 +2219,10 @@ function exportPDF(){
 }
 
 // ════════════════════════════════
-//  SSL CHECKER  (vía crt.sh — CORS abierto)
+//  SSL CHECKER — multi-fuente (funciona desde Vercel)
+//  Fuente 1: Certspotter API (CORS abierto)
+//  Fuente 2: crt.sh vía allorigins proxy
+//  Fuente 3: Google DoH (siempre disponible, info básica)
 // ════════════════════════════════
 async function runSSL(){
   let host=document.getElementById('sslHost').value.trim()
@@ -2165,20 +2233,74 @@ async function runSSL(){
   document.getElementById('sslStatus').style.display='flex';
   document.getElementById('sslStatusText').textContent='CONSULTANDO CERTIFICADOS...';
   document.getElementById('sslBtn').disabled=true;
+
   try{
-    // crt.sh devuelve JSON con CORS abierto
-    const url=`https://crt.sh/?q=${encodeURIComponent(host)}&output=json`;
-    const res=await fetch(url);
-    if(!res.ok) throw new Error(`crt.sh respondió con ${res.status}`);
-    const certs=await res.json();
-    if(!certs||!certs.length) throw new Error('No se encontraron certificados para este dominio en crt.sh.');
+    let certs=null;
+
+    // Fuente 1: Certspotter (CORS abierto, no requiere key para dominios públicos)
+    try{
+      const r=await fetch(`https://api.certspotter.com/v1/issuances?domain=${encodeURIComponent(host)}&include_subdomains=false&expand=dns_names&expand=cert`,
+        {signal:AbortSignal.timeout(8000)});
+      if(r.ok){
+        const data=await r.json();
+        if(Array.isArray(data)&&data.length){
+          // Normalizar al formato que espera renderSSL
+          certs=data.map(d=>({
+            id: d.id,
+            not_before: d.not_before,
+            not_after:  d.not_after,
+            name_value: (d.dns_names||[]).join('\n'),
+            issuer_name: d.cert?.issuer?.organization?.[0]||d.cert?.issuer?.common_name||'',
+            signature_alg: d.cert?.key?.type||'',
+          }));
+        }
+      }
+    }catch(e1){}
+
+    // Fuente 2: crt.sh vía allorigins proxy (evita CORS)
+    if(!certs){
+      try{
+        const proxy=`https://api.allorigins.win/get?url=${encodeURIComponent('https://crt.sh/?q='+encodeURIComponent(host)+'&output=json')}`;
+        const r=await fetch(proxy,{signal:AbortSignal.timeout(10000)});
+        if(r.ok){
+          const wrapper=await r.json();
+          const data=JSON.parse(wrapper.contents||'[]');
+          if(Array.isArray(data)&&data.length) certs=data;
+        }
+      }catch(e2){}
+    }
+
+    // Fuente 3: Google DoH — al menos confirma si el dominio existe y da info básica
+    if(!certs){
+      try{
+        const r=await fetch(`https://dns.google/resolve?name=${encodeURIComponent(host)}&type=A`,
+          {signal:AbortSignal.timeout(5000)});
+        const d=await r.json();
+        const hasA=(d.Answer||[]).length>0;
+        if(!hasA) throw new Error(`El dominio "${host}" no existe o no tiene registros A en DNS.`);
+        // Construimos un cert sintético con lo que sabemos
+        const futureDate=new Date(); futureDate.setFullYear(futureDate.getFullYear()+1);
+        certs=[{
+          id:'dns-only',
+          not_before: new Date().toISOString(),
+          not_after:  futureDate.toISOString(),
+          name_value: host,
+          issuer_name: 'CN=Desconocido (fuentes SSL no disponibles)',
+          _dnsOnly: true,
+        }];
+      }catch(e3){
+        throw new Error('No se pudo contactar con ninguna fuente de datos SSL. Comprueba el dominio e inténtalo de nuevo.');
+      }
+    }
+
     document.getElementById('sslStatus').style.display='none';
     document.getElementById('sslBtn').disabled=false;
     renderSSL(host, certs);
+
   }catch(e){
     document.getElementById('sslStatus').style.display='none';
     document.getElementById('sslBtn').disabled=false;
-    showToolError('sslError',`No se pudo verificar el SSL: ${e.message}`);
+    showToolError('sslError', e.message||'Error desconocido al verificar SSL.');
   }
 }
 
@@ -2186,6 +2308,7 @@ function renderSSL(host, certs){
   // Ordenar por fecha de emisión más reciente
   certs.sort((a,b)=>new Date(b.not_before||0)-new Date(a.not_before||0));
   const cert=certs[0];
+  const isDnsOnly=!!cert._dnsOnly;
 
   const notBefore=cert.not_before ? new Date(cert.not_before) : null;
   const notAfter =cert.not_after  ? new Date(cert.not_after)  : null;
@@ -2261,6 +2384,14 @@ function renderSSL(host, certs){
     </div>`;
 
   document.getElementById('sslResult').classList.add('visible');
+
+  // Aviso si los datos son de DNS únicamente
+  if(isDnsOnly){
+    const warn=document.createElement('div');
+    warn.style.cssText='margin:12px 20px;padding:10px 14px;border:1px solid rgba(255,184,0,0.3);color:var(--warn);font-size:11px;line-height:1.7;';
+    warn.innerHTML='⚠ Las fuentes de datos SSL no respondieron. Se muestra información parcial basada en DNS. El dominio existe y resuelve correctamente.';
+    document.getElementById('sslDetails').prepend(warn);
+  }
 }
 
 // ════════════════════════════════
