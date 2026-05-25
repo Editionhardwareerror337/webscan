@@ -1,8 +1,4 @@
 {
-  "functions": {
-    "api/ssl.js":   { "runtime": "nodejs20.x" },
-    "api/proxy.js": { "runtime": "nodejs20.x" }
-  },
   "headers": [
     {
       "source": "/api/(.*)",
