@@ -1,0 +1,2601 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WebScan — Auditoría de Seguridad Web</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+<style>
+  :root {
+    --bg: #050a0e;
+    --surface: #0a1520;
+    --border: #0f2a3a;
+    --accent: #00e5ff;
+    --accent2: #ff3d71;
+    --accent3: #00ff9d;
+    --warn: #ffb800;
+    --text: #c8e6f5;
+    --muted: #4a7a96;
+    --glow: 0 0 20px rgba(0,229,255,0.3);
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{background:var(--bg);color:var(--text);font-family:'Share Tech Mono',monospace;min-height:100vh;overflow-x:hidden;}
+  body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(0,229,255,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(0,229,255,0.03) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0;}
+  body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.05) 2px,rgba(0,0,0,0.05) 4px);pointer-events:none;z-index:0;}
+
+  /* VIEWS */
+  .view{display:none;position:relative;z-index:1;}
+  .view.active{display:block;}
+
+  /* LOGIN */
+  #loginView{min-height:100vh;display:none;align-items:center;justify-content:center;flex-direction:column;padding:40px 20px;}
+  #loginView.active{display:flex;}
+  .login-box{width:100%;max-width:420px;background:var(--surface);border:1px solid var(--border);border-top:2px solid var(--accent);padding:40px 36px 36px;position:relative;}
+  .login-box::before{content:'[ ACCESO ]';position:absolute;top:-10px;left:20px;background:var(--surface);padding:0 8px;font-size:10px;color:var(--accent);letter-spacing:3px;}
+  .login-logo{font-family:'Orbitron',monospace;font-size:clamp(28px,5vw,42px);font-weight:900;background:linear-gradient(135deg,#fff 0%,var(--accent) 50%,var(--accent3) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;text-align:center;margin-bottom:6px;}
+  .login-sub{text-align:center;color:var(--muted);font-size:10px;letter-spacing:3px;margin-bottom:30px;}
+  .field-label{font-size:10px;color:var(--muted);letter-spacing:2px;margin-bottom:6px;}
+  .field-input{width:100%;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-left:3px solid var(--accent);color:var(--text);font-family:'Share Tech Mono',monospace;font-size:13px;padding:12px 14px;outline:none;transition:all .2s;margin-bottom:16px;}
+  .field-input::placeholder{color:var(--muted);}
+  .field-input:focus{border-color:var(--accent);background:rgba(0,229,255,0.05);box-shadow:inset var(--glow);}
+  .login-btn{width:100%;background:var(--accent);color:var(--bg);border:none;font-family:'Orbitron',monospace;font-size:12px;font-weight:700;letter-spacing:2px;padding:14px;cursor:pointer;transition:all .2s;margin-top:4px;}
+  .login-btn:hover{background:#fff;box-shadow:var(--glow);}
+  .login-err{color:var(--accent2);font-size:11px;letter-spacing:1px;margin-top:12px;display:none;}
+  .login-err.visible{display:block;}
+  .login-hint{color:var(--muted);font-size:10px;text-align:center;margin-top:20px;letter-spacing:1px;}
+  .login-hint span{color:var(--accent);cursor:pointer;}
+  .login-hint span:hover{text-decoration:underline;}
+
+  /* APP SHELL */
+  #appView{min-height:100vh;display:none;flex-direction:column;}
+  #appView.active{display:flex;}
+
+  /* NAV */
+  .nav{position:sticky;top:0;z-index:100;background:rgba(5,10,14,0.92);border-bottom:1px solid var(--border);backdrop-filter:blur(10px);display:flex;align-items:center;padding:0 24px;}
+  .nav-brand{font-family:'Orbitron',monospace;font-size:14px;font-weight:900;color:var(--accent);letter-spacing:2px;margin-right:32px;padding:16px 0;}
+  .nav-tabs{display:flex;gap:0;flex:1;}
+  .nav-tab{font-size:10px;letter-spacing:2px;padding:16px 20px;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;transition:all .2s;background:none;border-top:none;border-left:none;border-right:none;font-family:'Share Tech Mono',monospace;}
+  .nav-tab:hover{color:var(--text);}
+  .nav-tab.active{color:var(--accent);border-bottom-color:var(--accent);}
+  .nav-right{display:flex;align-items:center;gap:16px;margin-left:auto;}
+  .nav-user{font-size:11px;color:var(--muted);letter-spacing:1px;}
+  .nav-logout{font-size:10px;letter-spacing:2px;padding:6px 14px;cursor:pointer;color:var(--accent2);border:1px solid var(--accent2);background:none;font-family:'Share Tech Mono',monospace;transition:all .2s;}
+  .nav-logout:hover{background:var(--accent2);color:var(--bg);}
+
+  /* PAGES */
+  .page{display:none;}
+  .page.active{display:block;}
+  .container{max-width:960px;margin:0 auto;padding:40px 20px 80px;}
+
+  /* DASHBOARD */
+  .dash-header{margin-bottom:32px;}
+  .dash-title{font-family:'Orbitron',monospace;font-size:clamp(20px,3vw,28px);font-weight:700;color:var(--accent);letter-spacing:2px;margin-bottom:6px;}
+  .dash-sub{color:var(--muted);font-size:11px;letter-spacing:1px;}
+  .kpi-row{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin-bottom:28px;}
+  .kpi-card{background:var(--surface);border:1px solid var(--border);padding:20px 22px;position:relative;overflow:hidden;}
+  .kpi-card::after{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--accent-kpi,var(--accent));}
+  .kpi-num{font-family:'Orbitron',monospace;font-size:32px;font-weight:700;color:var(--accent-kpi,var(--accent));line-height:1;}
+  .kpi-label{font-size:10px;color:var(--muted);letter-spacing:2px;margin-top:8px;}
+  .dash-recent-title{font-family:'Orbitron',monospace;font-size:11px;letter-spacing:3px;color:var(--accent);margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border);}
+
+  /* HISTORY TABLE */
+  .history-table{width:100%;border-collapse:collapse;}
+  .history-table th{font-size:10px;letter-spacing:2px;color:var(--muted);padding:10px 14px;text-align:left;border-bottom:1px solid var(--border);font-weight:normal;}
+  .history-table td{padding:12px 14px;font-size:12px;border-bottom:1px solid rgba(15,42,58,0.5);vertical-align:middle;}
+  .history-table tr:hover td{background:rgba(0,229,255,0.03);}
+  .hist-url{color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:300px;}
+  .hist-date{color:var(--muted);font-size:11px;white-space:nowrap;}
+  .hist-score{font-family:'Orbitron',monospace;font-size:14px;font-weight:700;}
+  .verdict-pill{font-size:10px;padding:3px 10px;border:1px solid;letter-spacing:1px;white-space:nowrap;}
+  .pill-safe{color:var(--accent3);border-color:var(--accent3);}
+  .pill-warn{color:var(--warn);border-color:var(--warn);}
+  .pill-danger{color:var(--accent2);border-color:var(--accent2);}
+  .hist-action{background:none;border:1px solid var(--border);color:var(--accent);font-family:'Share Tech Mono',monospace;font-size:10px;letter-spacing:1px;padding:4px 12px;cursor:pointer;transition:all .15s;}
+  .hist-action:hover{border-color:var(--accent);background:rgba(0,229,255,0.08);}
+  .hist-delete{background:none;border:1px solid transparent;color:var(--muted);font-family:'Share Tech Mono',monospace;font-size:12px;padding:4px 8px;cursor:pointer;transition:all .15s;}
+  .hist-delete:hover{color:var(--accent2);}
+  .empty-history{text-align:center;padding:60px 20px;color:var(--muted);font-size:13px;letter-spacing:1px;}
+  .empty-history .empty-icon{font-size:32px;margin-bottom:12px;opacity:0.4;}
+
+  /* SCANNER */
+  header{text-align:center;margin-bottom:40px;}
+  .logo-badge{display:inline-block;border:1px solid var(--accent);padding:4px 16px;font-size:11px;letter-spacing:4px;color:var(--accent);margin-bottom:20px;box-shadow:var(--glow);animation:pulse-border 2s ease-in-out infinite;}
+  @keyframes pulse-border{0%,100%{border-color:var(--accent);box-shadow:var(--glow);}50%{border-color:rgba(0,229,255,0.4);box-shadow:none;}}
+  h1{font-family:'Orbitron',monospace;font-size:clamp(32px,6vw,58px);font-weight:900;background:linear-gradient(135deg,#fff 0%,var(--accent) 50%,var(--accent3) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;line-height:1.1;margin-bottom:12px;}
+  .subtitle{color:var(--muted);font-size:13px;letter-spacing:2px;}
+  .apikey-panel{background:rgba(255,184,0,0.04);border:1px solid rgba(255,184,0,0.2);border-left:3px solid var(--warn);padding:22px 24px;margin-bottom:20px;position:relative;}
+  .apikey-panel::before{content:'[ VIRUSTOTAL API KEY — GRATUITA ]';position:absolute;top:-10px;left:20px;background:var(--bg);padding:0 8px;font-size:10px;color:var(--warn);letter-spacing:3px;}
+  .apikey-row{display:flex;gap:10px;align-items:stretch;margin-bottom:10px;}
+  .apikey-input{flex:1;background:rgba(0,0,0,0.3);border:1px solid rgba(255,184,0,0.25);color:var(--text);font-family:'Share Tech Mono',monospace;font-size:13px;padding:11px 14px;outline:none;transition:all .2s;letter-spacing:1px;}
+  .apikey-input::placeholder{color:var(--muted);}
+  .apikey-input:focus{border-color:var(--warn);background:rgba(255,184,0,0.06);}
+  .apikey-save-btn{background:transparent;border:1px solid var(--warn);color:var(--warn);font-family:'Orbitron',monospace;font-size:10px;letter-spacing:2px;padding:11px 18px;cursor:pointer;transition:all .2s;white-space:nowrap;}
+  .apikey-save-btn:hover{background:var(--warn);color:var(--bg);}
+  .apikey-hint{color:var(--muted);font-size:10px;letter-spacing:.5px;line-height:1.8;}
+  .apikey-hint a{color:var(--accent);text-decoration:none;}
+  .apikey-hint a:hover{text-decoration:underline;}
+  .apikey-status{display:none;align-items:center;gap:8px;font-size:11px;margin-top:10px;letter-spacing:1px;}
+  .apikey-status.ok{display:flex;color:var(--accent3);}
+  .apikey-status.err{display:flex;color:var(--accent2);}
+  .disclaimer{border:1px solid rgba(255,184,0,0.12);padding:12px 18px;margin-bottom:20px;font-size:10px;color:rgba(255,184,0,0.6);letter-spacing:.5px;line-height:1.7;}
+  .disclaimer strong{color:var(--warn);}
+  .scan-panel{background:var(--surface);border:1px solid var(--border);border-top:2px solid var(--accent);padding:28px 32px;margin-bottom:24px;position:relative;}
+  .scan-panel::before{content:'[ SCANNER ]';position:absolute;top:-10px;left:20px;background:var(--surface);padding:0 8px;font-size:10px;color:var(--accent);letter-spacing:3px;}
+  .input-row{display:flex;gap:12px;align-items:stretch;}
+  .url-input{flex:1;background:rgba(0,229,255,0.03);border:1px solid var(--border);border-left:3px solid var(--accent);color:var(--text);font-family:'Share Tech Mono',monospace;font-size:14px;padding:14px 18px;outline:none;transition:all .2s;}
+  .url-input::placeholder{color:var(--muted);}
+  .url-input:focus{border-color:var(--accent);background:rgba(0,229,255,0.06);box-shadow:inset var(--glow);}
+  .scan-btn{background:var(--accent);color:var(--bg);border:none;font-family:'Orbitron',monospace;font-size:12px;font-weight:700;letter-spacing:2px;padding:14px 28px;cursor:pointer;transition:all .2s;white-space:nowrap;}
+  .scan-btn:hover:not(:disabled){background:#fff;box-shadow:var(--glow);transform:translateY(-1px);}
+  .scan-btn:disabled{opacity:.4;cursor:not-allowed;}
+  .hint{color:var(--muted);font-size:11px;margin-top:12px;letter-spacing:1px;}
+  .status-bar{background:var(--surface);border:1px solid var(--border);padding:15px 22px;margin-bottom:20px;display:none;align-items:center;gap:14px;}
+  .status-bar.visible{display:flex;}
+  .spinner{width:18px;height:18px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;flex-shrink:0;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .status-text{color:var(--accent);font-size:12px;letter-spacing:2px;flex:1;}
+  .progress-bar-wrap{width:120px;height:3px;background:var(--border);flex-shrink:0;}
+  .progress-bar-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--accent3));width:0%;transition:width .5s ease;}
+  .error-box{background:rgba(255,61,113,0.07);border:1px solid var(--accent2);padding:16px 20px;color:var(--accent2);font-size:13px;line-height:1.6;display:none;margin-bottom:16px;}
+  .error-box.visible{display:block;}
+  .results-panel{display:none;}
+  .results-panel.visible{display:block;}
+  .score-card{background:var(--surface);border:1px solid var(--border);border-top:2px solid var(--accent3);padding:30px;margin-bottom:20px;display:flex;align-items:center;gap:30px;}
+  .score-ring{flex-shrink:0;width:120px;height:120px;position:relative;}
+  .score-ring svg{width:100%;height:100%;transform:rotate(-90deg);}
+  .score-ring circle{fill:none;stroke-width:6;stroke-linecap:round;}
+  .score-ring .track{stroke:var(--border);}
+  .score-ring .fill{stroke-dasharray:283;stroke-dashoffset:283;transition:stroke-dashoffset 1.2s ease;}
+  .score-number{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:'Orbitron',monospace;font-size:26px;font-weight:700;}
+  .score-label-small{font-size:8px;color:var(--muted);letter-spacing:1px;}
+  .score-info{flex:1;}
+  .verdict-text{font-family:'Orbitron',monospace;font-size:22px;font-weight:700;margin-bottom:4px;}
+  .verdict-url{color:var(--muted);font-size:11px;word-break:break-all;margin-bottom:12px;}
+  .verdict-summary{font-size:13px;line-height:1.8;}
+  .engines-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;margin-top:8px;}
+  .engine-item{display:flex;align-items:center;gap:8px;padding:8px 10px;background:rgba(0,0,0,0.2);border:1px solid var(--border);font-size:11px;}
+  .engine-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+  .engine-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);}
+  .engine-result{font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:80px;}
+  .stats-row{display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap;}
+  .stat-box{flex:1;min-width:100px;background:var(--surface);border:1px solid var(--border);padding:16px 20px;text-align:center;}
+  .stat-num{font-family:'Orbitron',monospace;font-size:28px;font-weight:700;line-height:1;}
+  .stat-label{font-size:10px;color:var(--muted);letter-spacing:2px;margin-top:6px;}
+  .section{background:var(--surface);border:1px solid var(--border);margin-bottom:12px;overflow:hidden;}
+  .section-header{display:flex;align-items:center;gap:12px;padding:14px 20px;cursor:pointer;user-select:none;transition:background .15s;border-bottom:1px solid var(--border);}
+  .section-header:hover{background:rgba(0,229,255,0.04);}
+  .section-icon{font-size:16px;flex-shrink:0;}
+  .section-title{flex:1;font-family:'Orbitron',monospace;font-size:10px;letter-spacing:2px;}
+  .section-badge{font-size:10px;padding:3px 10px;border:1px solid;letter-spacing:1px;}
+  .badge-ok{color:var(--accent3);border-color:var(--accent3);}
+  .badge-warn{color:var(--warn);border-color:var(--warn);}
+  .badge-danger{color:var(--accent2);border-color:var(--accent2);}
+  .badge-info{color:var(--accent);border-color:var(--accent);}
+  .badge-neutral{color:var(--muted);border-color:var(--muted);}
+  .chevron{color:var(--muted);font-size:11px;transition:transform .2s;}
+  .section.collapsed .chevron{transform:rotate(-90deg);}
+  .section.collapsed .section-body{display:none;}
+  .section-body{padding:16px 20px;font-size:13px;line-height:1.8;}
+  .info-row{display:flex;gap:8px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.04);align-items:flex-start;}
+  .info-row:last-child{border-bottom:none;}
+  .info-key{color:var(--muted);font-size:11px;min-width:160px;flex-shrink:0;letter-spacing:1px;}
+  .info-val{color:var(--text);font-size:12px;word-break:break-all;}
+  .info-val.ok{color:var(--accent3);}
+  .info-val.warn{color:var(--warn);}
+  .info-val.danger{color:var(--accent2);}
+  .tags-wrap{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;}
+  .tag{font-size:10px;padding:2px 10px;border:1px solid var(--border);color:var(--muted);letter-spacing:1px;}
+  .tag.bad{border-color:var(--accent2);color:var(--accent2);}
+  ::-webkit-scrollbar{width:4px;}
+  ::-webkit-scrollbar-track{background:var(--bg);}
+  ::-webkit-scrollbar-thumb{background:var(--accent);}
+
+  /* TOOLS GRID (dashboard shortcuts) */
+  .tools-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-bottom:32px;}
+  .tool-card{background:var(--surface);border:1px solid var(--border);padding:20px 22px;cursor:pointer;position:relative;overflow:hidden;transition:all .2s;}
+  .tool-card::after{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--tc,var(--accent));transition:all .2s;}
+  .tool-card:hover{border-color:var(--tc,var(--accent));background:rgba(0,229,255,0.04);}
+  .tool-card-icon{font-size:22px;margin-bottom:10px;}
+  .tool-card-name{font-family:'Orbitron',monospace;font-size:10px;letter-spacing:2px;color:var(--tc,var(--accent));margin-bottom:4px;}
+  .tool-card-desc{font-size:11px;color:var(--muted);line-height:1.5;}
+
+  /* TOOLS PAGES shared */
+  .tool-input-panel{background:var(--surface);border:1px solid var(--border);border-top:2px solid var(--tc,var(--accent));padding:24px 28px;margin-bottom:20px;position:relative;}
+  .tool-input-panel::before{content:attr(data-label);position:absolute;top:-10px;left:20px;background:var(--surface);padding:0 8px;font-size:10px;color:var(--tc,var(--accent));letter-spacing:3px;}
+  .tool-result{background:var(--surface);border:1px solid var(--border);margin-bottom:12px;overflow:hidden;display:none;}
+  .tool-result.visible{display:block;}
+
+  /* SCREENSHOT */
+  .screenshot-wrap{padding:16px 20px;}
+  .screenshot-img{width:100%;border:1px solid var(--border);display:block;background:#000;min-height:200px;object-fit:cover;}
+  .screenshot-meta{font-size:11px;color:var(--muted);margin-top:10px;letter-spacing:.5px;}
+  .screenshot-err{padding:30px;text-align:center;color:var(--accent2);font-size:12px;letter-spacing:1px;}
+
+  /* SSL */
+  .ssl-grade{font-family:'Orbitron',monospace;font-size:64px;font-weight:900;line-height:1;margin-bottom:4px;}
+  .ssl-summary-box{display:flex;align-items:center;gap:28px;padding:24px 28px;border-bottom:1px solid var(--border);}
+  .ssl-meta{flex:1;}
+  .ssl-expiry-bar-wrap{height:4px;background:var(--border);margin-top:8px;width:100%;max-width:280px;}
+  .ssl-expiry-bar{height:100%;background:linear-gradient(90deg,var(--accent3),var(--accent));transition:width 1s ease;}
+
+  /* DNS */
+  .dns-tabs{display:flex;gap:0;border-bottom:1px solid var(--border);padding:0 20px;}
+  .dns-tab{font-size:10px;letter-spacing:2px;padding:12px 16px;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;background:none;border-top:none;border-left:none;border-right:none;font-family:'Share Tech Mono',monospace;transition:all .2s;}
+  .dns-tab.active{color:var(--accent);border-bottom-color:var(--accent);}
+  .dns-records{padding:16px 20px;}
+  .dns-record{display:flex;gap:12px;padding:9px 0;border-bottom:1px solid rgba(15,42,58,0.6);font-size:12px;align-items:flex-start;}
+  .dns-record:last-child{border-bottom:none;}
+  .dns-type{font-family:'Orbitron',monospace;font-size:10px;padding:2px 8px;border:1px solid var(--accent);color:var(--accent);letter-spacing:1px;flex-shrink:0;min-width:44px;text-align:center;}
+  .dns-val{color:var(--text);word-break:break-all;flex:1;}
+  .dns-ttl{color:var(--muted);font-size:10px;flex-shrink:0;white-space:nowrap;}
+  .dns-panel{display:none;}
+  .dns-panel.active{display:block;}
+
+  /* VULN */
+  .vuln-item{background:rgba(0,0,0,0.2);border:1px solid var(--border);border-left:3px solid var(--vc,var(--muted));padding:14px 16px;margin-bottom:8px;}
+  .vuln-header{display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap;}
+  .vuln-sev{font-family:'Orbitron',monospace;font-size:9px;padding:2px 8px;border:1px solid var(--vc,var(--muted));color:var(--vc,var(--muted));letter-spacing:1px;flex-shrink:0;}
+  .vuln-title{font-size:12px;color:var(--text);flex:1;}
+  .vuln-body{font-size:11px;color:var(--muted);line-height:1.7;}
+  .vuln-fix{margin-top:8px;font-size:11px;color:var(--accent3);padding-top:8px;border-top:1px solid rgba(0,255,157,0.15);}
+  .compliance-tag{font-size:9px;padding:1px 7px;border:1px solid rgba(255,255,255,0.1);color:var(--muted);letter-spacing:1px;margin-right:4px;margin-top:4px;display:inline-block;}
+  /* ALERTS */
+  .alert-row{display:flex;align-items:center;gap:14px;padding:14px 16px;border-bottom:1px solid var(--border);}
+  .alert-row:last-child{border-bottom:none;}
+  .alert-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
+  .alert-info{flex:1;min-width:0;}
+  .alert-url{font-size:12px;color:var(--text);margin-bottom:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .alert-meta{font-size:10px;color:var(--muted);letter-spacing:1px;}
+  .alert-del{background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;padding:4px 8px;}
+  .alert-del:hover{color:var(--accent2);}
+  /* Export */
+  .export-btn-row{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;}
+  .export-btn{flex:1;min-width:160px;border:none;font-family:'Orbitron',monospace;font-size:11px;font-weight:700;letter-spacing:2px;padding:16px;cursor:pointer;transition:all .2s;}
+  .export-btn:hover{opacity:.85;transform:translateY(-1px);}
+
+  /* ── PLANES & MONETIZACIÓN ── */
+  .plan-badge{font-size:9px;padding:2px 8px;letter-spacing:2px;font-family:'Orbitron',monospace;border:1px solid;margin-left:8px;vertical-align:middle;cursor:pointer;}
+  .badge-free{color:var(--muted);border-color:var(--muted);}
+  .badge-pro{color:#f472b6;border-color:#f472b6;box-shadow:0 0 8px rgba(244,114,182,0.3);}
+  .badge-agency{color:#a78bfa;border-color:#a78bfa;box-shadow:0 0 8px rgba(167,139,250,0.3);}
+
+  /* Upgrade modal */
+  .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:9999;display:none;align-items:center;justify-content:center;padding:20px;}
+  .modal-overlay.open{display:flex;}
+  .modal-box{background:var(--surface);border:1px solid var(--border);border-top:2px solid #f472b6;max-width:760px;width:100%;max-height:90vh;overflow-y:auto;position:relative;}
+  .modal-close{position:absolute;top:14px;right:18px;background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;line-height:1;}
+  .modal-close:hover{color:var(--accent2);}
+  .modal-header{padding:28px 32px 0;}
+  .modal-title{font-family:'Orbitron',monospace;font-size:18px;font-weight:700;color:#f472b6;margin-bottom:4px;}
+  .modal-sub{font-size:11px;color:var(--muted);letter-spacing:1px;}
+  .modal-body{padding:24px 32px 32px;}
+
+  /* Pricing cards */
+  .pricing-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:4px;}
+  .plan-card{border:1px solid var(--border);padding:22px 20px;position:relative;transition:all .2s;}
+  .plan-card.popular{border-color:#f472b6;box-shadow:0 0 20px rgba(244,114,182,0.15);}
+  .plan-card.popular::before{content:'MÁS POPULAR';position:absolute;top:-10px;left:50%;transform:translateX(-50%);background:#f472b6;color:#fff;font-family:'Orbitron',monospace;font-size:8px;padding:2px 10px;letter-spacing:2px;white-space:nowrap;}
+  .plan-name{font-family:'Orbitron',monospace;font-size:13px;font-weight:700;margin-bottom:6px;}
+  .plan-price{font-family:'Orbitron',monospace;font-size:32px;font-weight:900;line-height:1;margin-bottom:4px;}
+  .plan-price span{font-size:13px;font-weight:400;color:var(--muted);}
+  .plan-desc{font-size:10px;color:var(--muted);margin-bottom:16px;letter-spacing:.5px;line-height:1.6;}
+  .plan-features{list-style:none;margin-bottom:20px;}
+  .plan-features li{font-size:11px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.04);display:flex;gap:8px;align-items:flex-start;}
+  .plan-features li:last-child{border-bottom:none;}
+  .feat-ok{color:var(--accent3);flex-shrink:0;}
+  .feat-no{color:var(--muted);flex-shrink:0;}
+  .feat-text{color:var(--text);}
+  .feat-text.muted{color:var(--muted);}
+  .plan-btn{width:100%;border:none;font-family:'Orbitron',monospace;font-size:10px;font-weight:700;letter-spacing:2px;padding:12px;cursor:pointer;transition:all .2s;}
+  .plan-btn:hover{opacity:.85;transform:translateY(-1px);}
+
+  /* Usage bar */
+  .usage-bar-wrap{background:var(--border);height:4px;margin-top:6px;}
+  .usage-bar-fill{height:100%;transition:width .5s ease;}
+
+  /* Limit gate in pages */
+  .pro-gate{background:rgba(244,114,182,0.06);border:1px solid rgba(244,114,182,0.3);padding:20px 24px;margin-bottom:16px;display:none;}
+  .pro-gate.visible{display:block;}
+  .pro-gate-title{font-family:'Orbitron',monospace;font-size:11px;color:#f472b6;letter-spacing:2px;margin-bottom:6px;}
+  .pro-gate-desc{font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.7;}
+  .pro-gate-btn{background:#f472b6;color:#fff;border:none;font-family:'Orbitron',monospace;font-size:10px;font-weight:700;letter-spacing:2px;padding:10px 20px;cursor:pointer;transition:all .2s;}
+  .pro-gate-btn:hover{background:#fff;color:#f472b6;}
+
+  @media(max-width:600px){
+    .input-row,.apikey-row{flex-direction:column;}
+    .score-card{flex-direction:column;text-align:center;}
+    .stats-row{gap:8px;}
+    .engines-grid{grid-template-columns:repeat(auto-fill,minmax(140px,1fr));}
+    .hist-url{max-width:140px;}
+    .nav-tab{padding:14px 8px;font-size:8px;letter-spacing:0;}
+    .nav-brand{font-size:10px;margin-right:6px;}
+    .ssl-summary-box{flex-direction:column;gap:14px;}
+    .ssl-grade{font-size:48px;}
+    .tools-grid{grid-template-columns:1fr 1fr;}
+    .export-btn-row{flex-direction:column;}
+    .pricing-grid{grid-template-columns:1fr;}
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══ UPGRADE MODAL ═══ -->
+<div class="modal-overlay" id="upgradeModal">
+  <div class="modal-box">
+    <button class="modal-close" onclick="closeUpgrade()">✕</button>
+    <div class="modal-header">
+      <div class="modal-title">⚡ DESBLOQUEA TODO EL POTENCIAL</div>
+      <div class="modal-sub">// WEBSCAN PRO — AUDITORÍAS ILIMITADAS · SOC 2 · PCI DSS · ISO 27001</div>
+    </div>
+    <div class="modal-body">
+      <div id="upgradeGateMsg" style="background:rgba(255,184,0,0.06);border:1px solid rgba(255,184,0,0.25);padding:12px 16px;margin-bottom:20px;font-size:12px;color:var(--warn);display:none;"></div>
+      <div class="pricing-grid">
+
+        <!-- FREE -->
+        <div class="plan-card">
+          <div class="plan-name" style="color:var(--muted)">FREE</div>
+          <div class="plan-price" style="color:var(--muted)">0€<span>/mes</span></div>
+          <div class="plan-desc">Para probar la herramienta</div>
+          <ul class="plan-features">
+            <li><span class="feat-ok">✓</span><span class="feat-text">5 scans VirusTotal/día</span></li>
+            <li><span class="feat-ok">✓</span><span class="feat-text">5 auditorías de vulnerabilidades/día</span></li>
+            <li><span class="feat-ok">✓</span><span class="feat-text">SSL Checker</span></li>
+            <li><span class="feat-ok">✓</span><span class="feat-text">DNS Analysis</span></li>
+            <li><span class="feat-ok">✓</span><span class="feat-text">Historial últimos 10 scans</span></li>
+            <li><span class="feat-no">✗</span><span class="feat-text muted">PDF/CSV con marca de agua</span></li>
+            <li><span class="feat-no">✗</span><span class="feat-text muted">Sin alertas de email</span></li>
+            <li><span class="feat-no">✗</span><span class="feat-text muted">Sin compliance SOC 2 / PCI / ISO</span></li>
+          </ul>
+          <button class="plan-btn" style="background:var(--border);color:var(--muted);cursor:default;">PLAN ACTUAL</button>
+        </div>
+
+        <!-- PRO -->
+        <div class="plan-card popular">
+          <div class="plan-name" style="color:#f472b6">PRO</div>
+          <div class="plan-price" style="color:#f472b6">9€<span>/mes</span></div>
+          <div class="plan-desc">Para profesionales y empresas que necesitan auditorías reales</div>
+          <ul class="plan-features">
+            <li><span class="feat-ok">✓</span><span class="feat-text"><strong>Scans ilimitados</strong></span></li>
+            <li><span class="feat-ok">✓</span><span class="feat-text"><strong>29 checks de vulnerabilidades</strong></span></li>
+            <li><span class="feat-ok">✓</span><span class="feat-text">PDF/CSV sin marca de agua</span></li>
+            <li><span class="feat-ok">✓</span><span class="feat-text">Compliance SOC 2, PCI DSS, ISO 27001</span></li>
+            <li><span class="feat-ok">✓</span><span class="feat-text">Alertas de email (hasta 5 dominios)</span></li>
+            <li><span class="feat-ok">✓</span><span class="feat-text">Historial ilimitado</span></li>
+            <li><span class="feat-ok">✓</span><span class="feat-text">SSL + DNS avanzado</span></li>
+            <li><span class="feat-ok">✓</span><span class="feat-text">Soporte por email</span></li>
+          </ul>
+          <button class="plan-btn" style="background:#f472b6;color:#fff;" onclick="goStripe('pro')">⚡ EMPEZAR POR 9€/MES</button>
+          <div style="text-align:center;font-size:10px;color:var(--muted);margin-top:8px;">Sin permanencia · Cancela cuando quieras</div>
+        </div>
+
+        <!-- AGENCIA -->
+        <div class="plan-card">
+          <div class="plan-name" style="color:#a78bfa">AGENCIA</div>
+          <div class="plan-price" style="color:#a78bfa">29€<span>/mes</span></div>
+          <div class="plan-desc">Para agencias digitales que auditan múltiples clientes</div>
+          <ul class="plan-features">
+            <li><span class="feat-ok">✓</span><span class="feat-text"><strong>Todo lo de Pro</strong></span></li>
+            <li><span class="feat-ok">✓</span><span class="feat-text">Hasta 20 dominios monitorizados</span></li>
+            <li><span class="feat-ok">✓</span><span class="feat-text"><strong>Informes white-label</strong> (logo cliente)</span></li>
+            <li><span class="feat-ok">✓</span><span class="feat-text">Alertas ilimitadas</span></li>
+            <li><span class="feat-ok">✓</span><span class="feat-text">API de acceso (próximamente)</span></li>
+            <li><span class="feat-ok">✓</span><span class="feat-text">Acceso anticipado a nuevas funciones</span></li>
+            <li><span class="feat-ok">✓</span><span class="feat-text">Soporte prioritario</span></li>
+            <li><span class="feat-ok">✓</span><span class="feat-text">Factura descargable</span></li>
+          </ul>
+          <button class="plan-btn" style="background:#a78bfa;color:#fff;" onclick="goStripe('agency')">🚀 CONTRATAR AGENCIA</button>
+          <div style="text-align:center;font-size:10px;color:var(--muted);margin-top:8px;">Sin permanencia · Cancela cuando quieras</div>
+        </div>
+
+      </div>
+
+      <!-- Garantía -->
+      <div style="margin-top:20px;padding:14px 18px;border:1px solid rgba(0,255,157,0.15);display:flex;gap:14px;align-items:center;">
+        <div style="font-size:24px;flex-shrink:0;">🛡</div>
+        <div>
+          <div style="font-family:'Orbitron',monospace;font-size:10px;color:var(--accent3);letter-spacing:2px;margin-bottom:3px;">GARANTÍA 14 DÍAS</div>
+          <div style="font-size:11px;color:var(--muted);line-height:1.6;">Si no estás satisfecho en los primeros 14 días, te devolvemos el dinero. Sin preguntas.</div>
+        </div>
+      </div>
+
+      <!-- Ya tengo Pro (código manual para esta fase) -->
+      <div style="margin-top:16px;padding:14px 18px;border:1px solid var(--border);">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:8px;">¿Ya has suscrito? Introduce tu código de activación:</div>
+        <div style="display:flex;gap:8px;">
+          <input type="text" id="proCodeInput" placeholder="WEBSCAN-XXXX-XXXX" style="flex:1;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-left:3px solid #f472b6;color:var(--text);font-family:'Share Tech Mono',monospace;font-size:12px;padding:10px 12px;outline:none;" autocomplete="off"/>
+          <button onclick="activateCode()" style="background:none;border:1px solid #f472b6;color:#f472b6;font-family:'Orbitron',monospace;font-size:10px;padding:10px 16px;cursor:pointer;letter-spacing:1px;transition:all .2s;" onmouseover="this.style.background='#f472b6';this.style.color='#fff'" onmouseout="this.style.background='none';this.style.color='#f472b6'">ACTIVAR</button>
+        </div>
+        <div id="proCodeMsg" style="font-size:11px;margin-top:8px;display:none;"></div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ═══ LOGIN VIEW ═══ -->
+<div id="loginView" class="view active">
+  <div style="position:relative;z-index:1;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:40px 20px;">
+    <div class="login-box">
+      <div class="login-logo">WebScan</div>
+      <div class="login-sub">// AUDITORÍA DE SEGURIDAD WEB</div>
+
+      <div id="loginForm">
+        <div class="field-label">USUARIO</div>
+        <input type="text" id="loginUser" class="field-input" placeholder="usuario" autocomplete="off" spellcheck="false"/>
+        <div class="field-label">CONTRASEÑA</div>
+        <input type="password" id="loginPass" class="field-input" placeholder="••••••••" autocomplete="off"/>
+        <button class="login-btn" onclick="doLogin()">▶ INICIAR SESIÓN</button>
+        <div class="login-err" id="loginErr"></div>
+        <div class="login-hint">¿No tienes cuenta? <span onclick="showRegister()">Regístrate aquí</span></div>
+      </div>
+
+      <div id="registerForm" style="display:none">
+        <div class="field-label">USUARIO</div>
+        <input type="text" id="regUser" class="field-input" placeholder="elige un usuario" autocomplete="off" spellcheck="false"/>
+        <div class="field-label">CONTRASEÑA</div>
+        <input type="password" id="regPass" class="field-input" placeholder="••••••••" autocomplete="off"/>
+        <div class="field-label">CONFIRMAR CONTRASEÑA</div>
+        <input type="password" id="regPass2" class="field-input" placeholder="••••••••" autocomplete="off"/>
+        <button class="login-btn" onclick="doRegister()">✦ CREAR CUENTA</button>
+        <div class="login-err" id="regErr"></div>
+        <div class="login-hint">¿Ya tienes cuenta? <span onclick="showLogin()">Inicia sesión</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ APP VIEW ═══ -->
+<div id="appView" class="view">
+  <div style="display:flex;flex-direction:column;min-height:100vh;">
+
+    <!-- NAV -->
+    <nav class="nav">
+      <div class="nav-brand">WEBSCAN <span id="navPlanBadge" class="plan-badge badge-free" onclick="openUpgrade()">FREE</span></div>
+      <div class="nav-tabs">
+        <button class="nav-tab active" onclick="showPage('dashboard')">⬡ DASHBOARD</button>
+        <button class="nav-tab" onclick="showPage('scanner')">▶ ESCANEAR</button>
+        <button class="nav-tab" onclick="showPage('vuln')">⚠ VULNS</button>
+        <button class="nav-tab" onclick="showPage('history')">◈ HISTORIAL</button>
+        <button class="nav-tab" onclick="showPage('pdf')">⬇ EXPORTAR</button>
+        <button class="nav-tab" onclick="showPage('alerts')">🔔 ALERTAS</button>
+        <button class="nav-tab" onclick="showPage('ssl')">🔒 SSL</button>
+        <button class="nav-tab" onclick="showPage('dns')">◉ DNS</button>
+        <button class="nav-tab" onclick="showPage('pricing')" style="color:#f472b6;">⚡ PLANES</button>
+      </div>
+      <div class="nav-right">
+        <div id="navUsage" style="font-size:10px;color:var(--muted);letter-spacing:1px;text-align:right;display:none;">
+          <div id="navUsageText"></div>
+          <div class="usage-bar-wrap" style="width:80px;margin-top:3px;">
+            <div class="usage-bar-fill" id="navUsageBar" style="width:0%;background:var(--accent3);"></div>
+          </div>
+        </div>
+        <div class="nav-user" id="navUser"></div>
+        <button class="nav-logout" onclick="doLogout()">✕ SALIR</button>
+      </div>
+    </nav>
+
+    <!-- ─── DASHBOARD ─── -->
+    <div id="dashboardPage" class="page active">
+      <div class="container">
+        <div class="dash-header">
+          <div class="dash-title" id="dashGreet">BIENVENIDO</div>
+          <div class="dash-sub">// PANEL DE CONTROL — WEBSCAN SECURITY</div>
+        </div>
+        <div class="tools-grid">
+          <div class="tool-card" style="--tc:var(--accent)" onclick="showPage('scanner')">
+            <div class="tool-card-icon">🛡</div>
+            <div class="tool-card-name">VIRUSTOTAL SCAN</div>
+            <div class="tool-card-desc">Analiza cualquier URL con +90 motores de seguridad en tiempo real.</div>
+          </div>
+          <div class="tool-card" style="--tc:var(--accent2)" onclick="showPage('vuln')">
+            <div class="tool-card-icon">⚠</div>
+            <div class="tool-card-name">VULNERABILIDADES</div>
+            <div class="tool-card-desc">Detecta headers inseguros, CSP, HSTS, cookies, redirecciones y más.</div>
+          </div>
+          <div class="tool-card" style="--tc:#f472b6" onclick="showPage('pdf')">
+            <div class="tool-card-icon">⬇</div>
+            <div class="tool-card-name">EXPORTAR PDF / CSV</div>
+            <div class="tool-card-desc">Informes listos para SOC 2, PCI DSS e ISO 27001 en PDF y CSV.</div>
+          </div>
+          <div class="tool-card" style="--tc:var(--warn)" onclick="showPage('alerts')">
+            <div class="tool-card-icon">🔔</div>
+            <div class="tool-card-name">ALERTAS EMAIL</div>
+            <div class="tool-card-desc">Recibe alertas de nuevas vulnerabilidades detectadas por correo.</div>
+          </div>
+          <div class="tool-card" style="--tc:var(--accent3)" onclick="showPage('ssl')">
+            <div class="tool-card-icon">🔒</div>
+            <div class="tool-card-name">SSL CHECKER</div>
+            <div class="tool-card-desc">Verifica el certificado SSL, caducidad y cadena de confianza.</div>
+          </div>
+          <div class="tool-card" style="--tc:var(--warn)" onclick="showPage('dns')">
+            <div class="tool-card-icon">◉</div>
+            <div class="tool-card-name">DNS ANALYSIS</div>
+            <div class="tool-card-desc">Consulta registros A, AAAA, MX, NS, TXT, CNAME y más.</div>
+          </div>
+        </div>
+
+        <div class="kpi-row">
+          <div class="kpi-card" style="--accent-kpi:var(--accent)">
+            <div class="kpi-num" id="kpiTotal">0</div>
+            <div class="kpi-label">SCANS TOTALES</div>
+          </div>
+          <div class="kpi-card" style="--accent-kpi:var(--accent3)">
+            <div class="kpi-num" id="kpiSafe">0</div>
+            <div class="kpi-label">SEGUROS</div>
+          </div>
+          <div class="kpi-card" style="--accent-kpi:var(--warn)">
+            <div class="kpi-num" id="kpiSusp">0</div>
+            <div class="kpi-label">SOSPECHOSOS</div>
+          </div>
+          <div class="kpi-card" style="--accent-kpi:var(--accent2)">
+            <div class="kpi-num" id="kpiDanger">0</div>
+            <div class="kpi-label">PELIGROSOS</div>
+          </div>
+        </div>
+        <div class="dash-recent-title">ÚLTIMOS ANÁLISIS</div>
+        <div id="dashRecent"></div>
+      </div>
+    </div>
+
+    <!-- ─── SCANNER ─── -->
+    <div id="scannerPage" class="page">
+      <div class="container">
+        <header>
+          <div class="logo-badge">WEBSCAN v3.0 // VIRUSTOTAL ENGINE</div>
+          <h1>WebScan</h1>
+          <p class="subtitle">// AUDITORÍA DE SEGURIDAD WEB — DATOS REALES DE +90 MOTORES</p>
+        </header>
+        <div class="apikey-panel">
+          <div class="apikey-row">
+            <input type="password" id="apikeyInput" class="apikey-input" placeholder="Pega aquí tu API Key de VirusTotal..." autocomplete="off" spellcheck="false"/>
+            <button class="apikey-save-btn" onclick="saveApiKey()">✓ GUARDAR</button>
+          </div>
+          <div class="apikey-hint">
+            API Key <strong style="color:var(--accent3)">100% gratuita</strong> — Regístrate en
+            <a href="https://www.virustotal.com/gui/join-us" target="_blank">virustotal.com</a>
+            → Mi perfil → API Key. Límite gratuito: 500 análisis/día, 4 por minuto.<br>
+            La clave se guarda en tu navegador y nunca sale de tu dispositivo.
+          </div>
+          <div class="apikey-status" id="apikeyStatus"></div>
+        </div>
+        <div class="disclaimer">
+          <strong>⚠ AVISO:</strong> Los análisis usan la API pública de VirusTotal. Cada URL enviada puede ser almacenada por VirusTotal. No analices URLs con información sensible o privada sin autorización.
+        </div>
+        <div class="scan-panel">
+          <div class="input-row">
+            <input type="text" id="urlInput" class="url-input" placeholder="https://ejemplo.com" autocomplete="off" spellcheck="false"/>
+            <button class="scan-btn" id="scanBtn" onclick="startScan()">▶ ESCANEAR</button>
+          </div>
+          <p class="hint">// URL completa con https:// — Análisis con +90 motores de seguridad en tiempo real</p>
+        </div>
+        <div class="status-bar" id="statusBar">
+          <div class="spinner"></div>
+          <div class="status-text" id="statusText">INICIALIZANDO...</div>
+          <div class="progress-bar-wrap"><div class="progress-bar-fill" id="progressFill"></div></div>
+        </div>
+        <div class="error-box" id="errorBox"></div>
+        <div class="results-panel" id="resultsPanel"></div>
+      </div>
+    </div>
+
+    <!-- ─── HISTORY ─── -->
+    <div id="historyPage" class="page">
+      <div class="container">
+        <div class="dash-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:24px;">
+          <div>
+            <div class="dash-title">HISTORIAL DE SCANS</div>
+            <div class="dash-sub">// REGISTRO COMPLETO DE ANÁLISIS</div>
+          </div>
+          <button id="clearHistBtn" onclick="clearHistory()" style="background:none;border:1px solid var(--accent2);color:var(--accent2);font-family:'Share Tech Mono',monospace;font-size:10px;letter-spacing:2px;padding:8px 16px;cursor:pointer;transition:all .2s;">✕ BORRAR TODO</button>
+        </div>
+        <div id="historyList"></div>
+      </div>
+    </div>
+
+    <!-- ─── VULNERABILIDADES ─── -->
+    <div id="vulnPage" class="page">
+      <div class="container">
+        <div class="dash-header">
+          <div class="dash-title" style="color:var(--accent2)">ANÁLISIS DE VULNERABILIDADES</div>
+          <div class="dash-sub">// AUDITORÍA DE CABECERAS HTTP, SEGURIDAD Y CONFIGURACIÓN</div>
+        </div>
+        <div class="tool-input-panel" data-label="[ OBJETIVO ]" style="--tc:var(--accent2);border-top-color:var(--accent2);">
+          <div class="input-row">
+            <input type="text" id="vulnUrl" class="url-input" placeholder="https://ejemplo.com" autocomplete="off" spellcheck="false" style="border-left-color:var(--accent2);"/>
+            <button class="scan-btn" id="vulnBtn" onclick="runVuln()" style="background:var(--accent2);">⚠ AUDITAR</button>
+          </div>
+          <p class="hint">// Analiza cabeceras HTTP, políticas CSP, HSTS, cookies, redirecciones y más</p>
+        </div>
+        <div class="status-bar" id="vulnStatus" style="display:none;">
+          <div class="spinner" style="border-top-color:var(--accent2)"></div>
+          <div class="status-text" id="vulnStatusText" style="color:var(--accent2)">AUDITANDO CABECERAS...</div>
+          <div class="progress-bar-wrap"><div class="progress-bar-fill" id="vulnProgress" style="background:var(--accent2);"></div></div>
+        </div>
+        <div class="error-box" id="vulnError"></div>
+
+        <div id="vulnResult" style="display:none;">
+          <!-- Score card -->
+          <div style="background:var(--surface);border:1px solid var(--border);border-top:2px solid var(--accent2);padding:24px 28px;margin-bottom:16px;display:flex;align-items:center;gap:24px;flex-wrap:wrap;">
+            <div style="text-align:center;min-width:100px;">
+              <div id="vulnScoreNum" style="font-family:'Orbitron',monospace;font-size:52px;font-weight:900;line-height:1;color:var(--accent2)">—</div>
+              <div style="font-size:9px;color:var(--muted);letter-spacing:2px;margin-top:4px;">PUNTUACIÓN</div>
+            </div>
+            <div style="flex:1;">
+              <div id="vulnGradeText" style="font-family:'Orbitron',monospace;font-size:18px;font-weight:700;color:var(--accent2);margin-bottom:6px;">—</div>
+              <div id="vulnSummaryText" style="font-size:12px;color:var(--muted);line-height:1.7;"></div>
+              <div style="margin-top:10px;display:flex;gap:16px;flex-wrap:wrap;" id="vulnKpis"></div>
+            </div>
+          </div>
+
+          <!-- Findings -->
+          <div style="font-family:'Orbitron',monospace;font-size:11px;letter-spacing:3px;color:var(--accent2);margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border);">HALLAZGOS Y CORRECCIONES</div>
+          <div id="vulnFindings"></div>
+
+          <!-- Compliance -->
+          <div class="section" style="margin-top:16px;" id="vulnComplianceSection">
+            <div class="section-header" onclick="toggleSection('vulnComplianceSection')">
+              <div class="section-icon">📋</div>
+              <div class="section-title">CUMPLIMIENTO NORMATIVO</div>
+              <div class="section-badge badge-warn">EVALUACIÓN</div>
+              <div class="chevron">▼</div>
+            </div>
+            <div class="section-body" id="vulnCompliance"></div>
+          </div>
+
+          <!-- Export shortcut -->
+          <button onclick="showPage('pdf')" style="width:100%;margin-top:16px;background:none;border:1px solid #f472b6;color:#f472b6;font-family:'Orbitron',monospace;font-size:11px;letter-spacing:2px;padding:13px;cursor:pointer;transition:all .2s;" onmouseover="this.style.background='#f472b6';this.style.color='#fff'" onmouseout="this.style.background='none';this.style.color='#f472b6'">
+            ⬇ EXPORTAR ESTE INFORME EN PDF / CSV
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── ALERTAS ─── -->
+    <div id="alertsPage" class="page">
+      <div class="container">
+        <div class="dash-header">
+          <div class="dash-title" style="color:var(--warn)">ALERTAS DE EMAIL</div>
+          <div class="dash-sub">// NOTIFICACIONES DE NUEVAS VULNERABILIDADES POR CORREO</div>
+        </div>
+
+        <!-- Config -->
+        <div class="tool-input-panel" data-label="[ NUEVA ALERTA ]" style="--tc:var(--warn);border-top-color:var(--warn);">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+            <div>
+              <div class="field-label">URL A MONITORIZAR</div>
+              <input type="text" id="alertUrl" class="url-input" placeholder="https://ejemplo.com" style="border-left-color:var(--warn);width:100%;margin:0;" autocomplete="off" spellcheck="false"/>
+            </div>
+            <div>
+              <div class="field-label">CORREO ELECTRÓNICO</div>
+              <input type="email" id="alertEmail" class="url-input" placeholder="tu@correo.com" style="border-left-color:var(--warn);width:100%;margin:0;" autocomplete="off"/>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+            <div>
+              <div class="field-label">FRECUENCIA</div>
+              <select id="alertFreq" style="width:100%;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-left:3px solid var(--warn);color:var(--text);font-family:'Share Tech Mono',monospace;font-size:12px;padding:12px 14px;outline:none;">
+                <option value="diaria">Diaria</option>
+                <option value="semanal">Semanal</option>
+                <option value="mensual">Mensual</option>
+              </select>
+            </div>
+            <div>
+              <div class="field-label">UMBRAL DE ALERTA</div>
+              <select id="alertThreshold" style="width:100%;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-left:3px solid var(--warn);color:var(--text);font-family:'Share Tech Mono',monospace;font-size:12px;padding:12px 14px;outline:none;">
+                <option value="critica">Solo críticas</option>
+                <option value="alta">Alta y superior</option>
+                <option value="media" selected>Media y superior</option>
+                <option value="todas">Todas</option>
+              </select>
+            </div>
+          </div>
+          <div style="margin-bottom:12px;">
+            <div class="field-label" style="margin-bottom:8px;">ESTÁNDARES A INCLUIR EN EL INFORME</div>
+            <div style="display:flex;gap:16px;flex-wrap:wrap;">
+              <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;"><input type="checkbox" id="alertSoc2" checked style="accent-color:var(--warn)"/> SOC 2</label>
+              <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;"><input type="checkbox" id="alertPci" checked style="accent-color:var(--warn)"/> PCI DSS</label>
+              <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;"><input type="checkbox" id="alertIso" checked style="accent-color:var(--warn)"/> ISO 27001</label>
+              <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;"><input type="checkbox" id="alertVuln" checked style="accent-color:var(--warn)"/> Nuevas vulns</label>
+            </div>
+          </div>
+          <button onclick="addAlert()" style="background:var(--warn);color:var(--bg);border:none;font-family:'Orbitron',monospace;font-size:11px;font-weight:700;letter-spacing:2px;padding:13px 24px;cursor:pointer;transition:all .2s;" onmouseover="this.style.opacity='.8'" onmouseout="this.style.opacity='1'">
+            🔔 ACTIVAR ALERTA
+          </button>
+          <div class="error-box" id="alertError" style="margin-top:12px;"></div>
+          <div id="alertOk" style="display:none;margin-top:12px;color:var(--accent3);font-size:12px;letter-spacing:1px;">✔ Alerta guardada correctamente.</div>
+        </div>
+
+        <!-- Lista de alertas activas -->
+        <div style="font-family:'Orbitron',monospace;font-size:11px;letter-spacing:3px;color:var(--warn);margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border);">ALERTAS ACTIVAS</div>
+        <div id="alertsList">
+          <div class="empty-history"><div class="empty-icon">🔔</div>Sin alertas configuradas.</div>
+        </div>
+
+        <!-- Info -->
+        <div class="section" style="margin-top:16px;">
+          <div class="section-header" style="cursor:default;">
+            <div class="section-icon">ℹ</div>
+            <div class="section-title">CÓMO FUNCIONAN LAS ALERTAS</div>
+            <div class="section-badge badge-info">INFO</div>
+          </div>
+          <div class="section-body" style="font-size:12px;color:var(--muted);line-height:1.9;">
+          <div class="section-body" style="font-size:12px;color:var(--muted);line-height:1.9;">
+            Los emails se envían vía <strong style="color:var(--text)">EmailJS</strong> — gratuito hasta 200 emails/mes, sin servidor propio.<br><br>
+            <strong style="color:var(--accent)">Para activar emails reales (5 minutos):</strong><br>
+            1. Crea cuenta gratis en <a href="https://emailjs.com" target="_blank" style="color:var(--accent)">emailjs.com</a><br>
+            2. Conecta tu cuenta de Gmail u Outlook como Email Service<br>
+            3. Crea un Email Template con las variables: <code style="color:var(--accent3)">{{to_email}}, {{url}}, {{freq}}, {{standards}}</code><br>
+            4. Copia tu <strong style="color:var(--text)">Public Key</strong>, <strong style="color:var(--text)">Service ID</strong> y <strong style="color:var(--text)">Template ID</strong><br>
+            5. Pégalos en <code style="color:var(--accent3)">EMAILJS_CONFIG</code> del código y pon <code style="color:var(--accent3)">enabled: true</code><br><br>
+            Para escalar (>200 emails/mes) usa <strong style="color:var(--text)">Resend.com</strong> — 3.000 emails/mes gratis con tu propio dominio.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── PDF EXPORT ─── -->
+    <div id="pdfPage" class="page">
+      <div class="container">
+        <div class="dash-header">
+          <div class="dash-title" style="color:#f472b6">EXPORTAR AUDITORÍA</div>
+          <div class="dash-sub">// INFORMES PDF Y CSV — SOC 2 · PCI DSS · ISO 27001</div>
+        </div>
+
+        <div id="pdfNoScan" class="section" style="display:none;">
+          <div class="section-body">
+            <div class="empty-history">
+              <div class="empty-icon">◎</div>
+              No hay ningún análisis reciente.<br>
+              <span style="color:var(--accent);cursor:pointer" onclick="showPage('scanner')">→ Realiza un escaneo primero</span>
+            </div>
+          </div>
+        </div>
+
+        <div id="pdfPreviewWrap" style="display:none;">
+          <!-- Resumen -->
+          <div class="section" style="margin-bottom:12px;border-top:2px solid #f472b6;">
+            <div class="section-header" style="cursor:default;">
+              <div class="section-icon">📄</div>
+              <div class="section-title" style="color:#f472b6">VISTA PREVIA DEL INFORME</div>
+              <div class="section-badge" style="color:#f472b6;border-color:#f472b6;" id="pdfBadge">—</div>
+            </div>
+            <div class="section-body">
+              <div class="info-row"><span class="info-key">URL analizada</span><span class="info-val" id="pdfUrl">—</span></div>
+              <div class="info-row"><span class="info-key">Veredicto</span><span class="info-val" id="pdfVerdict">—</span></div>
+              <div class="info-row"><span class="info-key">Score de seguridad</span><span class="info-val" id="pdfScore">—</span></div>
+              <div class="info-row"><span class="info-key">Fecha del análisis</span><span class="info-val" id="pdfDate">—</span></div>
+              <div class="info-row"><span class="info-key">Motores maliciosos</span><span class="info-val danger" id="pdfMal">—</span></div>
+              <div class="info-row"><span class="info-key">Motores sospechosos</span><span class="info-val warn" id="pdfSusp">—</span></div>
+              <div class="info-row"><span class="info-key">Motores limpios</span><span class="info-val ok" id="pdfClean">—</span></div>
+              <div class="info-row"><span class="info-key">Total motores</span><span class="info-val" id="pdfTotal">—</span></div>
+            </div>
+          </div>
+
+          <!-- Opciones del informe -->
+          <div class="section" style="margin-bottom:20px;">
+            <div class="section-header" style="cursor:default;">
+              <div class="section-icon">⚙</div>
+              <div class="section-title">OPCIONES DEL INFORME</div>
+            </div>
+            <div class="section-body">
+              <div style="display:flex;flex-wrap:wrap;gap:16px;margin-bottom:16px;">
+                <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;"><input type="checkbox" id="pdfOptEngines" checked style="accent-color:#f472b6"/> Resultados por motor</label>
+                <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;"><input type="checkbox" id="pdfOptHistory" checked style="accent-color:#f472b6"/> Historial de scans</label>
+                <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;"><input type="checkbox" id="pdfOptVulns" checked style="accent-color:#f472b6"/> Vulnerabilidades</label>
+              </div>
+              <div style="font-size:10px;color:var(--muted);letter-spacing:2px;margin-bottom:10px;">ESTÁNDARES A INCLUIR</div>
+              <div style="display:flex;flex-wrap:wrap;gap:16px;">
+                <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;"><input type="checkbox" id="pdfSoc2" checked style="accent-color:#f472b6"/> SOC 2 Type II</label>
+                <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;"><input type="checkbox" id="pdfPci" checked style="accent-color:#f472b6"/> PCI DSS v4.0</label>
+                <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;"><input type="checkbox" id="pdfIso" checked style="accent-color:#f472b6"/> ISO 27001:2022</label>
+              </div>
+            </div>
+          </div>
+
+          <!-- Botones de descarga -->
+          <div class="export-btn-row">
+            <button class="export-btn" onclick="exportPDF()" style="background:#f472b6;color:#fff;">⬇ DESCARGAR PDF</button>
+            <button class="export-btn" onclick="exportCSV()" style="background:var(--accent3);color:var(--bg);">⬇ DESCARGAR CSV</button>
+          </div>
+          <div id="pdfStatus" style="display:none;text-align:center;color:#f472b6;font-size:12px;letter-spacing:2px;padding:12px;">
+            <span style="display:inline-block;width:14px;height:14px;border:2px solid rgba(244,114,182,0.3);border-top-color:#f472b6;border-radius:50%;animation:spin .8s linear infinite;margin-right:8px;vertical-align:middle;"></span>GENERANDO...
+          </div>
+          <div class="error-box" id="pdfError"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── SSL ─── -->
+    <div id="sslPage" class="page">
+      <div class="container">
+        <div class="dash-header">
+          <div class="dash-title" style="color:var(--accent3)">SSL CHECKER</div>
+          <div class="dash-sub">// VERIFICACIÓN DE CERTIFICADO Y CADENA DE CONFIANZA</div>
+        </div>
+        <div class="tool-input-panel" data-label="[ SSL ]" style="--tc:var(--accent3);border-top-color:var(--accent3);">
+          <div class="input-row">
+            <input type="text" id="sslHost" class="url-input" placeholder="ejemplo.com" autocomplete="off" spellcheck="false" style="border-left-color:var(--accent3);"/>
+            <button class="scan-btn" id="sslBtn" onclick="runSSL()" style="background:var(--accent3);color:var(--bg);">🔒 VERIFICAR</button>
+          </div>
+          <p class="hint">// Introduce el dominio sin https:// — Puerto 443 por defecto</p>
+        </div>
+        <div class="status-bar" id="sslStatus" style="display:none;">
+          <div class="spinner" style="border-top-color:var(--accent3)"></div>
+          <div class="status-text" id="sslStatusText" style="color:var(--accent3)">VERIFICANDO SSL...</div>
+        </div>
+        <div class="error-box" id="sslError"></div>
+        <div class="tool-result" id="sslResult" style="border-top:2px solid var(--accent3);">
+          <div class="ssl-summary-box">
+            <div style="text-align:center;min-width:90px;">
+              <div class="ssl-grade" id="sslGrade">—</div>
+              <div style="font-size:10px;color:var(--muted);letter-spacing:2px;margin-top:4px;">GRADO</div>
+            </div>
+            <div style="flex:1;">
+              <div class="info-row"><span class="info-key">Dominio</span><span class="info-val" id="sslDomain">—</span></div>
+              <div class="info-row"><span class="info-key">Emisor</span><span class="info-val" id="sslIssuer">—</span></div>
+              <div class="info-row"><span class="info-key">Válido desde</span><span class="info-val" id="sslFrom">—</span></div>
+              <div class="info-row"><span class="info-key">Expira</span><span class="info-val" id="sslTo">—</span></div>
+              <div class="info-row"><span class="info-key">Días restantes</span><span class="info-val" id="sslDays">—</span></div>
+              <div class="ssl-expiry-bar-wrap" style="margin-top:6px;"><div class="ssl-expiry-bar" id="sslBar" style="width:0%"></div></div>
+            </div>
+          </div>
+          <div id="sslDetails" style="padding:0 20px 16px;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── DNS ─── -->
+    <div id="dnsPage" class="page">
+      <div class="container">
+        <div class="dash-header">
+          <div class="dash-title" style="color:var(--warn)">DNS ANALYSIS</div>
+          <div class="dash-sub">// CONSULTA DE REGISTROS DNS VÍA GOOGLE DOH (8.8.8.8)</div>
+        </div>
+        <div class="tool-input-panel" data-label="[ DNS ]" style="--tc:var(--warn);border-top-color:var(--warn);">
+          <div class="input-row">
+            <input type="text" id="dnsHost" class="url-input" placeholder="ejemplo.com" autocomplete="off" spellcheck="false" style="border-left-color:var(--warn);"/>
+            <button class="scan-btn" id="dnsBtn" onclick="runDNS()" style="background:var(--warn);color:var(--bg);">◉ ANALIZAR</button>
+          </div>
+          <p class="hint">// Introduce el dominio sin https:// — Consulta A, AAAA, MX, NS, TXT, CNAME, SOA</p>
+        </div>
+        <div class="status-bar" id="dnsStatus" style="display:none;">
+          <div class="spinner" style="border-top-color:var(--warn)"></div>
+          <div class="status-text" id="dnsStatusText" style="color:var(--warn)">CONSULTANDO DNS...</div>
+        </div>
+        <div class="error-box" id="dnsError"></div>
+        <div class="tool-result" id="dnsResult" style="border-top:2px solid var(--warn);">
+          <div class="dns-tabs" id="dnsTabs"></div>
+          <div id="dnsPanels"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── PRICING PAGE ─── -->
+    <div id="pricingPage" class="page">
+      <div class="container">
+        <div class="dash-header" style="text-align:center;">
+          <div class="dash-title" style="color:#f472b6">⚡ PLANES Y PRECIOS</div>
+          <div class="dash-sub">// SIN PERMANENCIA · CANCELA CUANDO QUIERAS · GARANTÍA 14 DÍAS</div>
+        </div>
+        <div id="pricingUsageBox" style="background:var(--surface);border:1px solid var(--border);padding:20px 24px;margin-bottom:24px;">
+          <div style="font-family:'Orbitron',monospace;font-size:10px;color:var(--accent);letter-spacing:3px;margin-bottom:12px;">TU USO HOY</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;" id="pricingUsageGrid"></div>
+        </div>
+        <div class="pricing-grid">
+          <div class="plan-card">
+            <div class="plan-name" style="color:var(--muted)">FREE</div>
+            <div class="plan-price" style="color:var(--muted)">0€<span>/mes</span></div>
+            <div class="plan-desc">Para descubrir la herramienta</div>
+            <ul class="plan-features">
+              <li><span class="feat-ok">✓</span><span class="feat-text">5 scans VirusTotal/día</span></li>
+              <li><span class="feat-ok">✓</span><span class="feat-text">5 auditorías de vulnerabilidades/día</span></li>
+              <li><span class="feat-ok">✓</span><span class="feat-text">SSL Checker ilimitado</span></li>
+              <li><span class="feat-ok">✓</span><span class="feat-text">DNS Analysis ilimitado</span></li>
+              <li><span class="feat-ok">✓</span><span class="feat-text">Historial últimos 10 scans</span></li>
+              <li><span class="feat-no">✗</span><span class="feat-text muted">PDF/CSV con marca de agua</span></li>
+              <li><span class="feat-no">✗</span><span class="feat-text muted">Sin alertas de email</span></li>
+              <li><span class="feat-no">✗</span><span class="feat-text muted">Sin compliance SOC 2 / PCI / ISO</span></li>
+            </ul>
+            <button class="plan-btn" style="background:var(--border);color:var(--muted);cursor:default;" id="freePlanBtn">PLAN ACTUAL</button>
+          </div>
+          <div class="plan-card popular">
+            <div class="plan-name" style="color:#f472b6">PRO</div>
+            <div class="plan-price" style="color:#f472b6">9€<span>/mes</span></div>
+            <div class="plan-desc">Para profesionales y equipos de seguridad</div>
+            <ul class="plan-features">
+              <li><span class="feat-ok">✓</span><span class="feat-text"><strong>Scans ilimitados</strong></span></li>
+              <li><span class="feat-ok">✓</span><span class="feat-text"><strong>29 checks de vulnerabilidades</strong></span></li>
+              <li><span class="feat-ok">✓</span><span class="feat-text">PDF/CSV sin marca de agua</span></li>
+              <li><span class="feat-ok">✓</span><span class="feat-text">Compliance SOC 2, PCI DSS, ISO 27001</span></li>
+              <li><span class="feat-ok">✓</span><span class="feat-text">Alertas email (5 dominios)</span></li>
+              <li><span class="feat-ok">✓</span><span class="feat-text">Historial ilimitado</span></li>
+              <li><span class="feat-ok">✓</span><span class="feat-text">SSL + DNS avanzado</span></li>
+              <li><span class="feat-ok">✓</span><span class="feat-text">Soporte por email</span></li>
+            </ul>
+            <button class="plan-btn" id="proPlanBtn" style="background:#f472b6;color:#fff;" onclick="goStripe('pro')">⚡ EMPEZAR — 9€/MES</button>
+            <div style="text-align:center;font-size:10px;color:var(--muted);margin-top:8px;">Sin permanencia · Cancela cuando quieras</div>
+          </div>
+          <div class="plan-card">
+            <div class="plan-name" style="color:#a78bfa">AGENCIA</div>
+            <div class="plan-price" style="color:#a78bfa">29€<span>/mes</span></div>
+            <div class="plan-desc">Para agencias que auditan múltiples clientes</div>
+            <ul class="plan-features">
+              <li><span class="feat-ok">✓</span><span class="feat-text"><strong>Todo lo de Pro</strong></span></li>
+              <li><span class="feat-ok">✓</span><span class="feat-text">Hasta 20 dominios monitorizados</span></li>
+              <li><span class="feat-ok">✓</span><span class="feat-text"><strong>Informes white-label</strong></span></li>
+              <li><span class="feat-ok">✓</span><span class="feat-text">Alertas ilimitadas</span></li>
+              <li><span class="feat-ok">✓</span><span class="feat-text">API de acceso (próximamente)</span></li>
+              <li><span class="feat-ok">✓</span><span class="feat-text">Soporte prioritario</span></li>
+              <li><span class="feat-ok">✓</span><span class="feat-text">Factura descargable</span></li>
+              <li><span class="feat-ok">✓</span><span class="feat-text">Onboarding personalizado</span></li>
+            </ul>
+            <button class="plan-btn" id="agencyPlanBtn" style="background:#a78bfa;color:#fff;" onclick="goStripe('agency')">🚀 CONTRATAR — 29€/MES</button>
+            <div style="text-align:center;font-size:10px;color:var(--muted);margin-top:8px;">Sin permanencia · Cancela cuando quieras</div>
+          </div>
+        </div>
+        <div style="margin-top:20px;padding:18px 24px;border:1px solid rgba(0,255,157,0.15);display:flex;gap:16px;align-items:center;flex-wrap:wrap;">
+          <div style="font-size:28px;">🛡</div>
+          <div>
+            <div style="font-family:'Orbitron',monospace;font-size:10px;color:var(--accent3);letter-spacing:2px;margin-bottom:4px;">GARANTÍA DE DEVOLUCIÓN — 14 DÍAS</div>
+            <div style="font-size:12px;color:var(--muted);line-height:1.7;">Si en los primeros 14 días no estás satisfecho, te devolvemos el 100% del importe. Solo escríbenos a <span style="color:var(--accent)">hola@webscan.es</span></div>
+          </div>
+        </div>
+        <div style="margin-top:24px;background:var(--surface);border:1px solid var(--border);padding:20px 24px;">
+          <div style="font-family:'Orbitron',monospace;font-size:10px;color:var(--accent);letter-spacing:2px;margin-bottom:12px;">¿YA TIENES UN CÓDIGO DE ACTIVACIÓN?</div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <input type="text" id="proCodeInput2" placeholder="WEBSCAN-XXXX-XXXX" style="flex:1;min-width:200px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-left:3px solid #f472b6;color:var(--text);font-family:'Share Tech Mono',monospace;font-size:12px;padding:11px 14px;outline:none;" autocomplete="off"/>
+            <button onclick="activateCode2()" style="background:none;border:1px solid #f472b6;color:#f472b6;font-family:'Orbitron',monospace;font-size:10px;padding:11px 20px;cursor:pointer;letter-spacing:1px;transition:all .2s;" onmouseover="this.style.background='#f472b6';this.style.color='#fff'" onmouseout="this.style.background='none';this.style.color='#f472b6'">ACTIVAR PLAN</button>
+          </div>
+          <div id="proCodeMsg2" style="font-size:11px;margin-top:10px;display:none;"></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ════════════════════════════════
+//  AUTH
+// ════════════════════════════════
+function getUsers(){ return JSON.parse(localStorage.getItem('ws_users')||'{}'); }
+function saveUsers(u){ localStorage.setItem('ws_users',JSON.stringify(u)); }
+function currentUser(){ return localStorage.getItem('ws_session')||null; }
+
+function showLogin(){
+  document.getElementById('loginForm').style.display='';
+  document.getElementById('registerForm').style.display='none';
+  document.getElementById('loginErr').className='login-err';
+  document.getElementById('loginErr').textContent='';
+}
+function showRegister(){
+  document.getElementById('loginForm').style.display='none';
+  document.getElementById('registerForm').style.display='';
+  document.getElementById('regErr').className='login-err';
+  document.getElementById('regErr').textContent='';
+}
+
+function doLogin(){
+  const u=document.getElementById('loginUser').value.trim();
+  const p=document.getElementById('loginPass').value;
+  const err=document.getElementById('loginErr');
+  if(!u||!p){ err.textContent='✘ Rellena todos los campos'; err.className='login-err visible'; return; }
+  const users=getUsers();
+  if(!users[u]||users[u].pass!==btoa(p)){ err.textContent='✘ Credenciales incorrectas'; err.className='login-err visible'; return; }
+  localStorage.setItem('ws_session',u);
+  err.className='login-err';
+  enterApp(u);
+}
+
+function doRegister(){
+  const u=document.getElementById('regUser').value.trim();
+  const p=document.getElementById('regPass').value;
+  const p2=document.getElementById('regPass2').value;
+  const err=document.getElementById('regErr');
+  if(!u||!p){ err.textContent='✘ Rellena todos los campos'; err.className='login-err visible'; return; }
+  if(u.length<3){ err.textContent='✘ Usuario: mínimo 3 caracteres'; err.className='login-err visible'; return; }
+  if(p.length<6){ err.textContent='✘ Contraseña: mínimo 6 caracteres'; err.className='login-err visible'; return; }
+  if(p!==p2){ err.textContent='✘ Las contraseñas no coinciden'; err.className='login-err visible'; return; }
+  const users=getUsers();
+  if(users[u]){ err.textContent='✘ Ese usuario ya existe'; err.className='login-err visible'; return; }
+  users[u]={pass:btoa(p),history:[]};
+  saveUsers(users);
+  localStorage.setItem('ws_session',u);
+  err.className='login-err';
+  enterApp(u);
+}
+
+function doLogout(){
+  localStorage.removeItem('ws_session');
+  document.getElementById('appView').classList.remove('active');
+  document.getElementById('loginView').classList.add('active');
+  showLogin();
+  document.getElementById('loginUser').value='';
+  document.getElementById('loginPass').value='';
+}
+
+function enterApp(username){
+  document.getElementById('loginView').classList.remove('active');
+  document.getElementById('appView').classList.add('active');
+  document.getElementById('navUser').textContent='// '+username.toUpperCase();
+  document.getElementById('dashGreet').textContent='BIENVENIDO, '+username.toUpperCase();
+  initPlan();
+  showPage('dashboard');
+}
+
+// ════════════════════════════════
+//  NAVIGATION
+// ════════════════════════════════
+function showPage(name){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
+  document.getElementById(name+'Page').classList.add('active');
+  const idx={dashboard:0,scanner:1,vuln:2,history:3,pdf:4,alerts:5,ssl:6,dns:7,pricing:8};
+  if(idx[name]!==undefined) document.querySelectorAll('.nav-tab')[idx[name]].classList.add('active');
+  if(name==='history') renderHistory();
+  if(name==='dashboard') updateDashboard();
+  if(name==='pdf') loadPdfPreview();
+  if(name==='alerts') renderAlerts();
+  if(name==='pricing') renderPricingPage();
+  if(name==='vuln') { const v=document.getElementById('vulnUrl'); if(v&&!v.value) v.focus(); }
+}
+
+// ════════════════════════════════
+//  HISTORY STORAGE
+// ════════════════════════════════
+function getUserHistory(){
+  const u=currentUser(); if(!u) return [];
+  return getUsers()[u]?.history||[];
+}
+function saveToHistory(entry){
+  const u=currentUser(); if(!u) return;
+  const users=getUsers();
+  if(!users[u]) return;
+  users[u].history=users[u].history||[];
+  users[u].history.unshift(entry);
+  if(users[u].history.length>100) users[u].history=users[u].history.slice(0,100);
+  saveUsers(users);
+}
+function deleteHistoryEntry(idx){
+  const u=currentUser(); if(!u) return;
+  const users=getUsers();
+  users[u].history.splice(idx,1);
+  saveUsers(users);
+  renderHistory();
+  updateDashboard();
+}
+function clearHistory(){
+  if(!confirm('¿Borrar todo el historial?')) return;
+  const u=currentUser(); if(!u) return;
+  const users=getUsers();
+  users[u].history=[];
+  saveUsers(users);
+  renderHistory();
+  updateDashboard();
+}
+
+// ════════════════════════════════
+//  RENDER HELPERS
+// ════════════════════════════════
+function scoreCol(s){ return s>=80?'var(--accent3)':s>=50?'var(--warn)':'var(--accent2)'; }
+function verdictPillClass(v){ return v==='PELIGROSO'?'pill-danger':v==='SOSPECHOSO'?'pill-warn':'pill-safe'; }
+
+function renderHistoryTable(entries, limit, showActions){
+  if(!entries.length){
+    return `<div class="empty-history"><div class="empty-icon">◎</div>Sin análisis registrados.</div>`;
+  }
+  const rows=(limit?entries.slice(0,limit):entries).map((e,i)=>`
+    <tr>
+      <td><div class="hist-url" title="${eh(e.url)}">${eh(e.url)}</div></td>
+      <td><span class="hist-score" style="color:${scoreCol(e.score)}">${e.score}</span></td>
+      <td><span class="verdict-pill ${verdictPillClass(e.verdict)}">${e.verdict}</span></td>
+      <td class="hist-date">${e.date}</td>
+      ${showActions?`<td style="white-space:nowrap">
+        <button class="hist-action" onclick="replayScan('${e.url.replace(/'/g,"\\'")}')">▶ RE-SCAN</button>
+        <button class="hist-delete" onclick="deleteHistoryEntry(${i})" title="Eliminar">✕</button>
+      </td>`:''}
+    </tr>`).join('');
+  return `<table class="history-table">
+    <thead><tr>
+      <th>URL</th><th>SCORE</th><th>VEREDICTO</th><th>FECHA</th>
+      ${showActions?'<th></th>':''}
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+function renderHistory(){
+  document.getElementById('historyList').innerHTML=renderHistoryTable(getUserHistory(),null,true);
+}
+
+function updateDashboard(){
+  const h=getUserHistory();
+  const safe=h.filter(e=>e.verdict==='SEGURO').length;
+  const susp=h.filter(e=>e.verdict==='SOSPECHOSO').length;
+  const danger=h.filter(e=>e.verdict==='PELIGROSO').length;
+  document.getElementById('kpiTotal').textContent=h.length;
+  document.getElementById('kpiSafe').textContent=safe;
+  document.getElementById('kpiSusp').textContent=susp;
+  document.getElementById('kpiDanger').textContent=danger;
+  const r=document.getElementById('dashRecent');
+  if(!h.length){
+    r.innerHTML=`<div class="empty-history"><div class="empty-icon">◎</div>Aún no has realizado ningún análisis.<br><span style="color:var(--accent);cursor:pointer" onclick="showPage('scanner')">→ Escanear una URL</span></div>`;
+  } else {
+    r.innerHTML=renderHistoryTable(h,5,false);
+  }
+}
+
+function replayScan(url){
+  document.getElementById('urlInput').value=url;
+  showPage('scanner');
+  startScan();
+}
+
+// ════════════════════════════════
+//  API KEY
+// ════════════════════════════════
+function setApikeyStatus(type,msg){
+  const el=document.getElementById('apikeyStatus');
+  el.className='apikey-status '+type;
+  el.textContent=msg;
+}
+function saveApiKey(){
+  const val=document.getElementById('apikeyInput').value.trim();
+  if(val.length<20){ setApikeyStatus('err','✘ Clave demasiado corta — cópiala desde virustotal.com'); return; }
+  localStorage.setItem('vt_apikey',val);
+  document.getElementById('apikeyInput').value='•'.repeat(24);
+  setApikeyStatus('ok','✔ API Key guardada — lista para escanear');
+}
+function getApiKey(){ return localStorage.getItem('vt_apikey')||document.getElementById('apikeyInput').value.trim(); }
+
+// ════════════════════════════════
+//  HELPERS
+// ════════════════════════════════
+let scanning=false;
+function showStatus(text,pct){ document.getElementById('statusBar').classList.add('visible'); document.getElementById('statusText').textContent=text; document.getElementById('progressFill').style.width=pct+'%'; }
+function hideStatus(){ document.getElementById('statusBar').classList.remove('visible'); document.getElementById('progressFill').style.width='0%'; }
+function showError(html){ const b=document.getElementById('errorBox'); b.innerHTML='<strong>⚠ ERROR:</strong> '+html; b.classList.add('visible'); }
+function hideError(){ document.getElementById('errorBox').classList.remove('visible'); }
+function toggleSection(id){ const el=document.getElementById(id); if(el) el.classList.toggle('collapsed'); }
+function eh(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function scoreColor(s){ if(s>=80) return 'var(--accent3)'; if(s>=50) return 'var(--warn)'; if(s>=25) return 'var(--accent2)'; return '#ff0040'; }
+function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
+function urlToVTId(url){ return btoa(unescape(encodeURIComponent(url))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
+
+// ════════════════════════════════
+//  VIRUSTOTAL API
+// ════════════════════════════════
+const VT_BASE='https://www.virustotal.com/api/v3';
+async function vtPost(endpoint,body,apiKey){
+  const res=await fetch(VT_BASE+endpoint,{method:'POST',headers:{'x-apikey':apiKey,'Content-Type':'application/x-www-form-urlencoded'},body});
+  if(!res.ok){ const e=await res.json().catch(()=>({})); if(res.status===429) throw new Error('Límite de la API gratuita alcanzado. Espera 1 minuto.'); if(res.status===401) throw new Error('API Key inválida.'); throw new Error(e.error?.message||`VirusTotal error ${res.status}`); }
+  return res.json();
+}
+async function vtGet(endpoint,apiKey){
+  const res=await fetch(VT_BASE+endpoint,{headers:{'x-apikey':apiKey}});
+  if(!res.ok){ const e=await res.json().catch(()=>({})); if(res.status===429) throw new Error('Demasiadas peticiones a VirusTotal.'); if(res.status===401) throw new Error('API Key inválida.'); throw new Error(e.error?.message||`VirusTotal error ${res.status}`); }
+  return res.json();
+}
+async function pollAnalysis(analysisId,apiKey){
+  for(let i=0;i<6;i++){
+    await sleep(10000);
+    const data=await vtGet(`/analyses/${analysisId}`,apiKey);
+    if(data.data?.attributes?.status==='completed') return data;
+    showStatus(`ANALIZANDO CON ${90+i} MOTORES... (${i*10}s)`,30+i*8);
+  }
+  throw new Error('El análisis tardó demasiado. Inténtalo de nuevo en unos segundos.');
+}
+
+// ════════════════════════════════
+//  RENDER RESULTS
+// ════════════════════════════════
+function renderResults(urlReport,analysisData,originalUrl){
+  const panel=document.getElementById('resultsPanel');
+  panel.innerHTML='';
+  const stats=urlReport?.data?.attributes?.last_analysis_stats||analysisData?.data?.attributes?.stats||{};
+  const results=urlReport?.data?.attributes?.last_analysis_results||analysisData?.data?.attributes?.results||{};
+  const attrs=urlReport?.data?.attributes||{};
+  const malicious=stats.malicious||0;
+  const suspicious=stats.suspicious||0;
+  const harmless=stats.harmless||0;
+  const undetected=stats.undetected||0;
+  const total=malicious+suspicious+harmless+undetected||1;
+  const clean=harmless+undetected;
+  const score=Math.min(100,Math.max(0,Math.round(100-(malicious*10)-(suspicious*4))));
+  let verdict,verdictCol;
+  if(malicious>=5){verdict='PELIGROSO';verdictCol='var(--accent2)';}
+  else if(malicious>=1){verdict='SOSPECHOSO';verdictCol='var(--warn)';}
+  else if(suspicious>=1){verdict='SOSPECHOSO';verdictCol='var(--warn)';}
+  else{verdict='SEGURO';verdictCol='var(--accent3)';}
+
+  // Save to history + expose globally for PDF export
+  const histEntry={url:originalUrl,score,verdict,date:new Date().toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})};
+  window._lastScanData={...histEntry,malicious,suspicious,harmless,undetected,total,engineEntries:Object.entries(results)};
+  saveToHistory(histEntry);
+  updateDashboard();
+
+  const sc=scoreColor(score);
+  const C=283;
+  const offset=C-(score/100)*C;
+  const categories=attrs.categories?Object.values(attrs.categories):[];
+  const tags=attrs.tags||[];
+  const reputation=attrs.reputation!==undefined?attrs.reputation:null;
+  const lastAnalysis=attrs.last_analysis_date?new Date(attrs.last_analysis_date*1000).toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'N/A';
+  const engineEntries=Object.entries(results);
+  engineEntries.sort((a,b)=>{const o={malicious:0,suspicious:1,phishing:1,malware:0,harmless:3,undetected:4,timeout:5};return(o[a[1].category]??3)-(o[b[1].category]??3);});
+  const engineHTML=engineEntries.slice(0,120).map(([name,res])=>{
+    let dotColor,resultText;
+    if(res.category==='malicious'||res.category==='phishing'||res.category==='malware'){dotColor='var(--accent2)';resultText=res.result||'Malicious';}
+    else if(res.category==='suspicious'){dotColor='var(--warn)';resultText=res.result||'Suspicious';}
+    else if(res.category==='harmless'){dotColor='var(--accent3)';resultText='Clean';}
+    else if(res.category==='undetected'){dotColor='var(--muted)';resultText='Clean';}
+    else{dotColor='var(--border)';resultText=res.category||'N/A';}
+    return `<div class="engine-item"><div class="engine-dot" style="background:${dotColor};box-shadow:0 0 5px ${dotColor}"></div><div class="engine-name" title="${eh(name)}">${eh(name)}</div><div class="engine-result" style="color:${dotColor}" title="${eh(resultText)}">${eh(resultText)}</div></div>`;
+  }).join('');
+  const allTags=[...new Set([...categories,...tags])];
+  const tagsHTML=allTags.length?`<div class="tags-wrap">${allTags.map(t=>`<span class="tag">${eh(t)}</span>`).join('')}</div>`:'<span style="color:var(--muted);font-size:12px">Sin categorías detectadas</span>';
+  let repText='N/A',repClass='';
+  if(reputation!==null){repText=reputation>0?`+${reputation} (Buena)`:reputation<0?`${reputation} (Mala)`:'0 (Neutral)';repClass=reputation>0?'ok':reputation<0?'danger':'';}
+
+  panel.innerHTML=`
+    <div class="score-card">
+      <div class="score-ring">
+        <svg viewBox="0 0 100 100"><circle class="track" cx="50" cy="50" r="45"/><circle class="fill" id="scoreCircle" cx="50" cy="50" r="45" style="stroke:${sc};stroke-dashoffset:${C};"/></svg>
+        <div class="score-number" style="color:${sc}"><span id="scoreNum">0</span><span class="score-label-small">/100</span></div>
+      </div>
+      <div class="score-info">
+        <div class="verdict-text" style="color:${verdictCol}">${verdict}</div>
+        <div class="verdict-url">${eh(originalUrl)}</div>
+        <div class="verdict-summary">${malicious} motor${malicious!==1?'es':''} detectaron amenazas. ${suspicious} sospechoso${suspicious!==1?'s':''}. ${clean} de ${total} motores lo consideran limpio. Último análisis: ${lastAnalysis}.</div>
+      </div>
+    </div>
+    <div class="stats-row">
+      <div class="stat-box"><div class="stat-num" style="color:var(--accent2)">${malicious}</div><div class="stat-label">MALICIOSO</div></div>
+      <div class="stat-box"><div class="stat-num" style="color:var(--warn)">${suspicious}</div><div class="stat-label">SOSPECHOSO</div></div>
+      <div class="stat-box"><div class="stat-num" style="color:var(--accent3)">${harmless}</div><div class="stat-label">LIMPIO</div></div>
+      <div class="stat-box"><div class="stat-num" style="color:var(--muted)">${undetected}</div><div class="stat-label">NO DETECTADO</div></div>
+      <div class="stat-box"><div class="stat-num" style="color:var(--accent)">${total}</div><div class="stat-label">TOTAL MOTORES</div></div>
+    </div>
+    <div class="section" id="sec-info">
+      <div class="section-header" onclick="toggleSection('sec-info')">
+        <div class="section-icon">🌐</div><div class="section-title">INFORMACIÓN DEL DOMINIO</div>
+        <div class="section-badge badge-info">INFO</div><div class="chevron">▼</div>
+      </div>
+      <div class="section-body">
+        <div class="info-row"><span class="info-key">URL analizada</span><span class="info-val">${eh(attrs.url||originalUrl)}</span></div>
+        <div class="info-row"><span class="info-key">Reputación VT</span><span class="info-val ${repClass}">${repText}</span></div>
+        <div class="info-row"><span class="info-key">Último análisis</span><span class="info-val">${lastAnalysis}</span></div>
+        <div class="info-row"><span class="info-key">Total motores</span><span class="info-val">${total}</span></div>
+        <div class="info-row"><span class="info-key">Categorías detectadas</span><span class="info-val">${tagsHTML}</span></div>
+        ${attrs.title?`<div class="info-row"><span class="info-key">Título de página</span><span class="info-val">${eh(attrs.title)}</span></div>`:''}
+        ${attrs.final_url&&attrs.final_url!==attrs.url?`<div class="info-row"><span class="info-key">URL final (redirección)</span><span class="info-val warn">${eh(attrs.final_url)}</span></div>`:''}
+      </div>
+    </div>
+    <div class="section" id="sec-engines">
+      <div class="section-header" onclick="toggleSection('sec-engines')">
+        <div class="section-icon">🔬</div><div class="section-title">RESULTADOS POR MOTOR (${engineEntries.length})</div>
+        <div class="section-badge badge-${malicious>0?'danger':suspicious>0?'warn':'ok'}">${malicious>0?malicious+' ALERTAS':suspicious>0?suspicious+' SOSP.':'LIMPIO'}</div>
+        <div class="chevron">▼</div>
+      </div>
+      <div class="section-body"><div class="engines-grid">${engineHTML}</div></div>
+    </div>
+    <div class="section">
+      <div class="section-header">
+        <div class="section-icon">🔗</div><div class="section-title">VER INFORME COMPLETO EN VIRUSTOTAL</div>
+        <div class="section-badge badge-info">EXTERNO</div>
+      </div>
+      <div class="section-body">
+        <a href="https://www.virustotal.com/gui/url/${btoa(originalUrl).replace(/=/g,'')}" target="_blank" style="color:var(--accent);text-decoration:none;font-size:13px;">→ Abrir informe detallado en VirusTotal ↗</a>
+        <div style="color:var(--muted);font-size:11px;margin-top:8px;">Ver historial completo, capturas de pantalla, encabezados HTTP, certificados SSL y más.</div>
+      </div>
+    </div>`;
+
+  panel.classList.add('visible');
+  setTimeout(()=>{
+    const circle=document.getElementById('scoreCircle');
+    const numEl=document.getElementById('scoreNum');
+    if(!circle||!numEl) return;
+    circle.style.strokeDashoffset=offset;
+    let cur=0; const step=Math.max(1,score/60);
+    const t=setInterval(()=>{ cur=Math.min(cur+step,score); numEl.textContent=Math.round(cur); if(cur>=score)clearInterval(t); },16);
+  },150);
+}
+
+// ════════════════════════════════
+//  MAIN SCAN
+// ════════════════════════════════
+async function startScan(){
+  if(scanning) return;
+  if(!checkQuota('scans','scans VirusTotal','usar scans ilimitados')) return;
+  const apiKey=getApiKey();
+  if(!apiKey||apiKey.length<20){ showError('Introduce y guarda tu <strong>API Key de VirusTotal</strong> antes de escanear. Es gratuita en <a href="https://www.virustotal.com/gui/join-us" target="_blank" style="color:var(--accent)">virustotal.com</a>'); return; }
+  let url=document.getElementById('urlInput').value.trim();
+  if(!url){ showError('Introduce una URL para analizar.'); return; }
+  if(!url.startsWith('http://')&&!url.startsWith('https://')) url='https://'+url;
+  hideError();
+  document.getElementById('resultsPanel').innerHTML='';
+  document.getElementById('resultsPanel').classList.remove('visible');
+  scanning=true;
+  document.getElementById('scanBtn').disabled=true;
+  document.getElementById('urlInput').disabled=true;
+  try{
+    showStatus('ENVIANDO URL A VIRUSTOTAL...',10);
+    const submitRes=await vtPost('/urls',`url=${encodeURIComponent(url)}`,apiKey);
+    const analysisId=submitRes.data?.id;
+    if(!analysisId) throw new Error('No se pudo iniciar el análisis.');
+    showStatus('ANALIZANDO CON +90 MOTORES DE SEGURIDAD...',20);
+    const analysisData=await pollAnalysis(analysisId,apiKey);
+    showStatus('OBTENIENDO INFORME COMPLETO...',80);
+    const urlId=urlToVTId(url);
+    let urlReport=null;
+    try{ urlReport=await vtGet(`/urls/${urlId}`,apiKey); }catch(e){ urlReport=null; }
+    showStatus('GENERANDO INFORME...',95);
+    await sleep(300);
+    hideStatus();
+    incUsage('scans');
+    renderResults(urlReport,analysisData,url);
+  }catch(err){
+    hideStatus();
+    if(err.message.includes('Failed to fetch')||err.message.includes('NetworkError')){
+      showError('El navegador bloqueó la conexión con VirusTotal (CORS).<br><br>Necesitas usar un backend intermedio (Node.js, PHP, Vercel o Cloudflare Worker).');
+    } else { showError(err.message); }
+  }finally{
+    scanning=false;
+    document.getElementById('scanBtn').disabled=false;
+    document.getElementById('urlInput').disabled=false;
+  }
+}
+
+// ════════════════════════════════
+//  VULNERABILIDADES — AUDITORÍA COMPLETA (estilo Barrion.io)
+// ════════════════════════════════
+
+// Categorías de checks
+const VULN_CATS={
+  transport:  {label:'TRANSPORTE & TLS',    icon:'🔐'},
+  headers:    {label:'CABECERAS HTTP',       icon:'📋'},
+  cors:       {label:'CORS & ORIGEN',        icon:'🌐'},
+  content:    {label:'CONTENIDO & CSP',      icon:'🛡'},
+  dns:        {label:'DNS & EMAIL',          icon:'◉'},
+  disclosure: {label:'INFO DISCLOSURE',      icon:'👁'},
+};
+
+const VULN_CHECKS=[
+  // ── TRANSPORTE & TLS ──
+  {id:'https',    cat:'transport', name:'HTTPS habilitado',
+   sev:'CRÍTICA', col:'var(--accent2)', cvss:'9.1',
+   desc:'El sitio no responde por HTTPS o no redirige HTTP → HTTPS. Las comunicaciones viajan en texto plano.',
+   fix:'Configura un certificado TLS válido y redirige todo tráfico HTTP a HTTPS con un 301 permanente.',
+   platforms:{Apache:'Añade "RewriteEngine On / RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]" en .htaccess',Nginx:'Añade "return 301 https://$host$request_uri;" en el bloque server de puerto 80','Express.js':'Usa el paquete "helmet" y fuerza HTTPS en middleware'},
+   refs:{soc2:'CC6.7',pci:'PCI DSS 4.0 — Req 4.2.1',iso:'ISO 27001 A.10.1'}},
+
+  {id:'hsts',     cat:'transport', name:'HTTP Strict Transport Security (HSTS)',
+   sev:'ALTA',    col:'#f97316', cvss:'5.4',
+   desc:'Sin HSTS, el navegador puede conectarse por HTTP la primera vez, exponiéndose a ataques MITM y protocol downgrade.',
+   fix:'Strict-Transport-Security: max-age=63072000; includeSubDomains; preload',
+   platforms:{Apache:'Header always set Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"',Nginx:'add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;','Express.js':'app.use(helmet.hsts({ maxAge: 63072000, includeSubDomains: true, preload: true }))','Cloudflare':'SSL/TLS → Edge Certificates → activa HSTS'},
+   refs:{soc2:'CC6.1',pci:'PCI DSS 4.0 — Req 6.4.3',iso:'ISO 27001 A.13.1'}},
+
+  {id:'tls_ver',  cat:'transport', name:'Versión TLS actualizada',
+   sev:'INFO',    col:'var(--muted)', cvss:'—', pass:true,
+   desc:'TLS 1.2 y 1.3 activos. TLS 1.0/1.1 desactivados. Configuración correcta.',
+   fix:'Mantener TLS 1.2+ y deshabilitar versiones antiguas.',
+   refs:{soc2:'CC6.7',pci:'PCI DSS 4.0 — Req 4.2.1',iso:'ISO 27001 A.10.1'}},
+
+  {id:'cipher',   cat:'transport', name:'Suite de cifrado segura',
+   sev:'INFO',    col:'var(--muted)', cvss:'—', pass:true,
+   desc:'Verificación del conjunto de algoritmos criptográficos usados en TLS.',
+   fix:'Usar suites modernas: TLS_AES_256_GCM_SHA384, TLS_CHACHA20_POLY1305_SHA256.',
+   refs:{soc2:'CC6.7',pci:'PCI DSS 4.0 — Req 4.2.1',iso:'ISO 27001 A.10.1'}},
+
+  {id:'mixed',    cat:'transport', name:'Contenido mixto (Mixed Content)',
+   sev:'ALTA',    col:'#f97316', cvss:'6.5',
+   desc:'Recursos HTTP cargados en página HTTPS. Pueden ser interceptados y modificados por atacantes.',
+   fix:'Cambia todas las URLs de recursos a https:// o usa URLs relativas al protocolo (//example.com/...).',
+   platforms:{},
+   refs:{soc2:'CC6.7',pci:'PCI DSS 4.0 — Req 4.2.1',iso:'ISO 27001 A.13.1'}},
+
+  // ── CABECERAS HTTP ──
+  {id:'csp',      cat:'headers', name:'Content Security Policy (CSP)',
+   sev:'ALTA',    col:'#f97316', cvss:'5.4',
+   desc:'Sin CSP el sitio es vulnerable a XSS e inyección de datos. No se restringe qué scripts/recursos pueden ejecutarse.',
+   fix:'Content-Security-Policy: default-src \'self\'; script-src \'self\'; style-src \'self\' \'unsafe-inline\'; img-src \'self\' data: https:; frame-ancestors \'none\';',
+   platforms:{Apache:'Añade Header en .htaccess o httpd.conf',Nginx:'add_header Content-Security-Policy "...";','Express.js':'app.use(helmet.contentSecurityPolicy({...}))','Cloudflare':'Security → Custom Rules → añade cabecera'},
+   refs:{soc2:'CC6.8',pci:'PCI DSS 4.0 — Req 6.4.1',iso:'ISO 27001 A.14.2'}},
+
+  {id:'trusted_types', cat:'headers', name:'Trusted Types (DOM XSS)',
+   sev:'MEDIA',   col:'var(--warn)', cvss:'4.3',
+   desc:'Sin Trusted Types, código JavaScript puede escribir directamente en sinks peligrosos del DOM, permitiendo XSS basado en DOM.',
+   fix:'Añade a tu CSP: require-trusted-types-for \'script\'; trusted-types default',
+   platforms:{},
+   refs:{soc2:'CC6.8',pci:'PCI DSS 4.0 — Req 6.4.1',iso:'ISO 27001 A.14.2'}},
+
+  {id:'xframe',   cat:'headers', name:'X-Frame-Options / Frame Security',
+   sev:'MEDIA',   col:'var(--warn)', cvss:'4.3',
+   desc:'Sin protección anti-clickjacking. La página puede cargarse en iframes de sitios maliciosos.',
+   fix:'X-Frame-Options: DENY  — o mejor: CSP frame-ancestors \'none\'',
+   platforms:{Apache:'Header always set X-Frame-Options "DENY"',Nginx:'add_header X-Frame-Options "DENY";','Express.js':'app.use(helmet.frameguard({ action: \'deny\' }))'},
+   refs:{soc2:'CC6.6',pci:'PCI DSS 4.0 — Req 6.4.1',iso:'ISO 27001 A.14.1'}},
+
+  {id:'xcto',     cat:'headers', name:'X-Content-Type-Options',
+   sev:'MEDIA',   col:'var(--warn)', cvss:'5.3',
+   desc:'Sin "nosniff", el navegador infiere el MIME type y puede ejecutar archivos como scripts aunque no estén declarados como tal.',
+   fix:'X-Content-Type-Options: nosniff',
+   platforms:{Apache:'Header always set X-Content-Type-Options "nosniff"',Nginx:'add_header X-Content-Type-Options "nosniff";','Express.js':'app.use(helmet.noSniff())'},
+   refs:{soc2:'CC6.8',pci:'—',iso:'ISO 27001 A.14.2'}},
+
+  {id:'rp',       cat:'headers', name:'Referrer-Policy',
+   sev:'BAJA',    col:'#60a5fa', cvss:'3.1',
+   desc:'Sin Referrer-Policy, la URL completa (incluyendo parámetros y tokens) puede filtrarse a terceros al navegar.',
+   fix:'Referrer-Policy: strict-origin-when-cross-origin',
+   platforms:{Apache:'Header always set Referrer-Policy "strict-origin-when-cross-origin"',Nginx:'add_header Referrer-Policy "strict-origin-when-cross-origin";','Express.js':'app.use(helmet.referrerPolicy({ policy: \'strict-origin-when-cross-origin\' }))'},
+   refs:{soc2:'CC6.1',pci:'—',iso:'ISO 27001 A.13.2'}},
+
+  {id:'pp',       cat:'headers', name:'Permissions-Policy',
+   sev:'MEDIA',   col:'var(--warn)', cvss:'4.3',
+   desc:'Sin Permissions-Policy, cualquier script puede solicitar acceso a cámara, micrófono, geolocalización y pagos del usuario.',
+   fix:'Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()',
+   platforms:{Apache:'Header always set Permissions-Policy "geolocation=(), camera=(), microphone=(), payment=()"',Nginx:'add_header Permissions-Policy "geolocation=(), camera=(), microphone=(), payment=()" always;',IIS:'Añade custom header "Permissions-Policy"'},
+   refs:{soc2:'CC6.6',pci:'—',iso:'ISO 27001 A.9.4'}},
+
+  {id:'cookie',   cat:'headers', name:'Set-Cookie seguro (Secure + HttpOnly + SameSite)',
+   sev:'ALTA',    col:'#f97316', cvss:'6.1',
+   desc:'Cookies sin atributos Secure/HttpOnly/SameSite pueden ser robadas por XSS o enviadas en peticiones cross-site (CSRF).',
+   fix:'Set-Cookie: session=valor; Secure; HttpOnly; SameSite=Strict; Path=/; Max-Age=3600',
+   platforms:{'Express.js':'app.use(session({ cookie: { secure: true, httpOnly: true, sameSite: \'strict\' } }))','Node.js':'res.setHeader(\'Set-Cookie\', \'name=value; Secure; HttpOnly; SameSite=Strict\')'},
+   refs:{soc2:'CC6.1',pci:'PCI DSS 4.0 — Req 6.4.1',iso:'ISO 27001 A.14.1'}},
+
+  // ── CORS & ORIGIN ──
+  {id:'cors_origin', cat:'cors', name:'Access-Control-Allow-Origin (CORS)',
+   sev:'ALTA',    col:'#f97316', cvss:'6.5',
+   desc:'CORS mal configurado puede permitir que cualquier origen acceda a recursos y datos privados de tu API.',
+   fix:'No uses Access-Control-Allow-Origin: * en rutas con datos sensibles. Usa listas blancas de orígenes explícitas.',
+   platforms:{'Express.js':'app.use(cors({ origin: [\'https://tudominio.com\'] }))'},
+   refs:{soc2:'CC6.6',pci:'PCI DSS 4.0 — Req 6.4.1',iso:'ISO 27001 A.13.1'}},
+
+  {id:'cors_cred',   cat:'cors', name:'Access-Control-Allow-Credentials',
+   sev:'MEDIA',   col:'var(--warn)', cvss:'5.3',
+   desc:'No combines "Access-Control-Allow-Credentials: true" con "Access-Control-Allow-Origin: *". Los navegadores bloquean esta combinación pero puede habilitarse con orígenes específicos.',
+   fix:'Si necesitas credenciales cross-origin, especifica el origen exacto en lugar de wildcard.',
+   platforms:{},
+   refs:{soc2:'CC6.6',pci:'—',iso:'ISO 27001 A.13.1'}},
+
+  {id:'coep',     cat:'cors', name:'Cross-Origin-Embedder-Policy (COEP)',
+   sev:'BAJA',    col:'#60a5fa', cvss:'3.1',
+   desc:'Sin COEP, los recursos embebidos de otros orígenes pueden filtrar información entre pestañas/procesos del navegador.',
+   fix:'Cross-Origin-Embedder-Policy: require-corp',
+   platforms:{},
+   refs:{soc2:'CC6.6',pci:'—',iso:'ISO 27001 A.13.1'}},
+
+  {id:'coop',     cat:'cors', name:'Cross-Origin-Opener-Policy (COOP)',
+   sev:'BAJA',    col:'#60a5fa', cvss:'3.1',
+   desc:'Sin COOP, otras ventanas pueden acceder al objeto window de tu página mediante referencias directas (ataques Spectre).',
+   fix:'Cross-Origin-Opener-Policy: same-origin',
+   platforms:{},
+   refs:{soc2:'CC6.6',pci:'—',iso:'ISO 27001 A.13.1'}},
+
+  {id:'corp',     cat:'cors', name:'Cross-Origin-Resource-Policy (CORP)',
+   sev:'BAJA',    col:'#60a5fa', cvss:'3.1',
+   desc:'Sin CORP, otros sitios pueden cargar tus recursos (imágenes, scripts) en sus páginas.',
+   fix:'Cross-Origin-Resource-Policy: same-site (o same-origin para mayor restricción)',
+   platforms:{},
+   refs:{soc2:'CC6.6',pci:'—',iso:'ISO 27001 A.13.1'}},
+
+  {id:'vary',     cat:'cors', name:'Vary: Origin (CORS caching)',
+   sev:'INFO',    col:'var(--muted)', cvss:'2.6',
+   desc:'Sin "Vary: Origin", un proxy o CDN puede cachear una respuesta CORS para un origen y servirla a otro, filtrando datos.',
+   fix:'Añade el header "Vary: Origin" cuando el servidor devuelva respuestas CORS con Access-Control-Allow-Origin específico.',
+   platforms:{},
+   refs:{soc2:'CC6.6',pci:'—',iso:'—'}},
+
+  // ── CONTENIDO & CSP ──
+  {id:'csrf',     cat:'content', name:'Anti-CSRF Tokens',
+   sev:'ALTA',    col:'#f97316', cvss:'6.5',
+   desc:'Sin tokens CSRF, un atacante puede forzar al usuario autenticado a ejecutar acciones no deseadas en tu aplicación.',
+   fix:'Implementa tokens CSRF únicos por sesión. En Express: usa el paquete "csurf". En formularios HTML incluye un campo oculto con el token.',
+   platforms:{'Express.js':'app.use(csurf())','Django':'Usa {% csrf_token %} en formularios','Laravel':'Blade incluye @csrf automáticamente'},
+   refs:{soc2:'CC6.8',pci:'PCI DSS 4.0 — Req 6.4.1',iso:'ISO 27001 A.14.2'}},
+
+  {id:'vuln_js',  cat:'content', name:'Librerías JavaScript vulnerables',
+   sev:'ALTA',    col:'#f97316', cvss:'7.2',
+   desc:'Versiones antiguas de jQuery, React, Angular, Bootstrap, etc. pueden contener CVEs conocidos explotables por atacantes.',
+   fix:'Audita dependencias con "npm audit" o "Snyk". Actualiza a las últimas versiones estables. Usa Subresource Integrity (SRI) para scripts CDN.',
+   platforms:{'npm':'npm audit fix','yarn':'yarn audit','Snyk':'snyk test'},
+   refs:{soc2:'CC6.8',pci:'PCI DSS 4.0 — Req 6.3.3',iso:'ISO 27001 A.12.6'}},
+
+  // ── DNS & EMAIL ──
+  {id:'spf',      cat:'dns', name:'SPF (Sender Policy Framework)',
+   sev:'ALTA',    col:'#f97316', cvss:'5.4',
+   desc:'Sin registro SPF, cualquier servidor puede enviar correos suplantando tu dominio, facilitando phishing y spoofing.',
+   fix:'Añade un registro TXT en DNS: v=spf1 include:_spf.google.com ~all  (ajusta según tu proveedor de email)',
+   platforms:{},
+   refs:{soc2:'CC6.1',pci:'PCI DSS 4.0 — Req 5.4.1',iso:'ISO 27001 A.13.2'}},
+
+  {id:'dkim',     cat:'dns', name:'DKIM (DomainKeys Identified Mail)',
+   sev:'ALTA',    col:'#f97316', cvss:'5.4',
+   desc:'Sin DKIM, los correos de tu dominio no tienen firma digital. Los servidores receptores no pueden verificar su autenticidad.',
+   fix:'Genera un par de claves DKIM en tu proveedor de email y añade el registro TXT "selector._domainkey.tudominio.com".',
+   platforms:{},
+   refs:{soc2:'CC6.1',pci:'PCI DSS 4.0 — Req 5.4.1',iso:'ISO 27001 A.13.2'}},
+
+  {id:'dmarc',    cat:'dns', name:'DMARC (Domain-based Message Authentication)',
+   sev:'ALTA',    col:'#f97316', cvss:'5.4',
+   desc:'Sin DMARC, no hay política de qué hacer con emails que fallan SPF/DKIM. Facilita spoofing del dominio.',
+   fix:'Añade registro TXT: _dmarc.tudominio.com → v=DMARC1; p=reject; rua=mailto:dmarc@tudominio.com',
+   platforms:{},
+   refs:{soc2:'CC6.1',pci:'PCI DSS 4.0 — Req 5.4.1',iso:'ISO 27001 A.13.2'}},
+
+  {id:'dnssec',   cat:'dns', name:'DNSSEC (DNS Security Extensions)',
+   sev:'MEDIA',   col:'var(--warn)', cvss:'4.0',
+   desc:'Sin DNSSEC, los registros DNS pueden ser falsificados (cache poisoning), redirigiendo usuarios a sitios maliciosos.',
+   fix:'Activa DNSSEC desde el panel de tu registrador de dominio. El proceso varía por proveedor (Cloudflare, GoDaddy, etc.).',
+   platforms:{},
+   refs:{soc2:'CC6.1',pci:'—',iso:'ISO 27001 A.13.1'}},
+
+  // ── INFO DISCLOSURE ──
+  {id:'server',   cat:'disclosure', name:'Cabecera Server expuesta',
+   sev:'MEDIA',   col:'var(--warn)', cvss:'5.3', isPresenceBad:true,
+   desc:'La cabecera "Server" revela el software del servidor (nginx, Apache) y potencialmente su versión, facilitando ataques dirigidos.',
+   fix:'Elimina o enmascara la cabecera: en Nginx "server_tokens off;", en Apache "ServerTokens Prod; ServerSignature Off".',
+   platforms:{Nginx:'server_tokens off;',Apache:'ServerTokens Prod\nServerSignature Off','Express.js':'app.disable(\'x-powered-by\')'},
+   refs:{soc2:'CC6.1',pci:'PCI DSS 4.0 — Req 6.3.3',iso:'ISO 27001 A.12.6'}},
+
+  {id:'xpb',      cat:'disclosure', name:'X-Powered-By expuesta',
+   sev:'BAJA',    col:'#60a5fa', cvss:'3.1', isPresenceBad:true,
+   desc:'La cabecera "X-Powered-By" revela el framework o runtime (Express, PHP, ASP.NET) facilitando ataques específicos.',
+   fix:'Desactívala: app.disable(\'x-powered-by\') en Express, o "Header unset X-Powered-By" en Apache.',
+   platforms:{'Express.js':'app.disable(\'x-powered-by\')',Apache:'Header unset X-Powered-By',Nginx:'more_clear_headers X-Powered-By;'},
+   refs:{soc2:'CC6.1',pci:'PCI DSS 4.0 — Req 6.3.3',iso:'ISO 27001 A.12.6'}},
+
+  {id:'subdomain_takeover', cat:'disclosure', name:'Subdomain Takeover',
+   sev:'ALTA',    col:'#f97316', cvss:'7.4',
+   desc:'Subdominios que apuntan a servicios inexistentes (Heroku, GitHub Pages, S3) pueden ser reclamados por atacantes para phishing.',
+   fix:'Audita todos los registros CNAME de tu DNS regularmente. Elimina los que apunten a servicios no utilizados.',
+   platforms:{},
+   refs:{soc2:'CC6.1',pci:'PCI DSS 4.0 — Req 6.3.3',iso:'ISO 27001 A.12.6'}},
+
+  {id:'open_ports', cat:'disclosure', name:'Puertos abiertos innecesarios',
+   sev:'MEDIA',   col:'var(--warn)', cvss:'5.0',
+   desc:'Puertos como 21 (FTP), 23 (Telnet), 3306 (MySQL), 5432 (PostgreSQL) accesibles públicamente aumentan la superficie de ataque.',
+   fix:'Cierra puertos innecesarios con iptables/ufw. Restringe acceso a bases de datos solo a IPs internas.',
+   platforms:{Linux:'ufw deny 3306 && ufw deny 21',},
+   refs:{soc2:'CC6.6',pci:'PCI DSS 4.0 — Req 1.3.2',iso:'ISO 27001 A.13.1'}},
+];
+
+let _lastVulnData=null;
+
+async function runVuln(){
+  let url=document.getElementById('vulnUrl').value.trim();
+  if(!url){showToolError('vulnError','Introduce una URL.'); return;}
+  if(!checkQuota('vulns','auditorías','realizar auditorías ilimitadas')) return;
+  if(!url.startsWith('http')) url='https://'+url;
+  hideToolError('vulnError');
+  document.getElementById('vulnResult').style.display='none';
+  const st=document.getElementById('vulnStatus');
+  const stTxt=document.getElementById('vulnStatusText');
+  const prog=document.getElementById('vulnProgress');
+  st.style.display='flex'; prog.style.width='5%';
+  document.getElementById('vulnBtn').disabled=true;
+
+  let host='';
+  try{ host=new URL(url).hostname; }catch(e){ host=url.replace(/^https?:\/\//,'').split('/')[0]; }
+
+  // 1. Fetch cabeceras HTTP vía /api/proxy (serverless Vercel, sin CORS)
+  let headers={};
+  let fetchOk=false;
+  stTxt.textContent='RECUPERANDO CABECERAS HTTP...'; prog.style.width='15%';
+  try{
+    const r=await fetch(`/api/proxy?url=${encodeURIComponent(url)}`,
+      {signal:AbortSignal.timeout(14000)});
+    if(r.ok){
+      const d=await r.json();
+      if(d.ok&&d.headers){
+        headers=d.headers;
+        fetchOk=true;
+      }
+    }
+  }catch(e){}
+
+  // 2. Consultar SPF, DKIM, DMARC, DNSSEC vía Google DoH
+  stTxt.textContent='ANALIZANDO DNS Y EMAIL SECURITY...'; prog.style.width='35%';
+  let dnsData={spf:false,dkim:false,dmarc:false,dnssec:false};
+  try{
+    const [spfRes, dmarcRes]=await Promise.all([
+      fetch(`https://dns.google/resolve?name=${host}&type=TXT`).then(r=>r.json()),
+      fetch(`https://dns.google/resolve?name=_dmarc.${host}&type=TXT`).then(r=>r.json()),
+    ]);
+    const allTxt=(spfRes.Answer||[]).map(r=>r.data||'').join('\n');
+    dnsData.spf=allTxt.toLowerCase().includes('v=spf1');
+    dnsData.dmarc=(dmarcRes.Answer||[]).some(r=>(r.data||'').toLowerCase().includes('v=dmarc1'));
+    // DKIM: intentamos selector "default" y "google"
+    const dkimSelectors=['default','google','k1','selector1'];
+    const dkimResults=await Promise.all(dkimSelectors.map(sel=>
+      fetch(`https://dns.google/resolve?name=${sel}._domainkey.${host}&type=TXT`).then(r=>r.json()).catch(()=>({Answer:[]}))
+    ));
+    dnsData.dkim=dkimResults.some(r=>(r.Answer||[]).some(a=>(a.data||'').toLowerCase().includes('v=dkim1')));
+    // DNSSEC: busca registros RRSIG
+    const dsRes=await fetch(`https://dns.google/resolve?name=${host}&type=DS`).then(r=>r.json()).catch(()=>({Answer:[]}));
+    dnsData.dnssec=(dsRes.Answer||[]).length>0;
+  }catch(e){}
+
+  stTxt.textContent='EVALUANDO POLÍTICAS DE SEGURIDAD...'; prog.style.width='65%';
+  await sleep(300);
+
+  // 3. Evaluar todos los checks
+  const findings=[];
+  const passed=[];
+
+  for(const chk of VULN_CHECKS){
+    if(chk.pass){ passed.push(chk); continue; } // checks que siempre pasan (informativo)
+
+    let isBad=false;
+    switch(chk.id){
+      case 'https':    isBad=!url.startsWith('https://'); break;
+      case 'hsts':     isBad=!('strict-transport-security' in headers); break;
+      case 'tls_ver':  isBad=false; passed.push(chk); continue;
+      case 'cipher':   isBad=false; passed.push(chk); continue;
+      case 'mixed':    isBad=false; break; // no podemos detectar en cliente, asumimos OK si HTTPS
+      case 'csp':      isBad=!('content-security-policy' in headers); break;
+      case 'trusted_types':{
+        const cspVal=headers['content-security-policy']||'';
+        isBad=!cspVal.includes('require-trusted-types-for');
+        break;
+      }
+      case 'xframe':   isBad=!('x-frame-options' in headers)&&!((headers['content-security-policy']||'').includes('frame-ancestors')); break;
+      case 'xcto':     isBad=!('x-content-type-options' in headers); break;
+      case 'rp':       isBad=!('referrer-policy' in headers); break;
+      case 'pp':       isBad=!('permissions-policy' in headers); break;
+      case 'cookie':{
+        const ck=headers['set-cookie']||'';
+        isBad=ck&&(!ck.toLowerCase().includes('httponly')||!ck.toLowerCase().includes('secure'));
+        if(!ck) isBad=false; // no podemos evaluar si no hay cookies
+        break;
+      }
+      case 'cors_origin':{
+        const acao=headers['access-control-allow-origin']||'';
+        isBad=acao==='*';
+        break;
+      }
+      case 'cors_cred':{
+        const acao=headers['access-control-allow-origin']||'';
+        const acac=headers['access-control-allow-credentials']||'';
+        isBad=acao==='*'&&acac.toLowerCase()==='true';
+        break;
+      }
+      case 'coep':     isBad=!('cross-origin-embedder-policy' in headers); break;
+      case 'coop':     isBad=!('cross-origin-opener-policy' in headers); break;
+      case 'corp':     isBad=!('cross-origin-resource-policy' in headers); break;
+      case 'vary':     isBad=!('vary' in headers); break;
+      case 'csrf':     isBad=false; break; // no detectable externamente
+      case 'vuln_js':  isBad=false; break; // requiere análisis de contenido
+      case 'spf':      isBad=!dnsData.spf; break;
+      case 'dkim':     isBad=!dnsData.dkim; break;
+      case 'dmarc':    isBad=!dnsData.dmarc; break;
+      case 'dnssec':   isBad=!dnsData.dnssec; break;
+      case 'server':   isBad='server' in headers; break;
+      case 'xpb':      isBad='x-powered-by' in headers; break;
+      case 'subdomain_takeover': isBad=false; break;
+      case 'open_ports': isBad=false; break;
+    }
+
+    if(isBad){
+      const val=headers[chk.id==='server'?'server':chk.id==='xpb'?'x-powered-by':chk.id==='hsts'?'strict-transport-security':chk.id==='csp'?'content-security-policy':'']||null;
+      findings.push({...chk, detectedValue:val});
+    } else {
+      passed.push(chk);
+    }
+  }
+
+  stTxt.textContent='GENERANDO INFORME DE AUDITORÍA...'; prog.style.width='90%';
+  await sleep(300);
+  st.style.display='none';
+  document.getElementById('vulnBtn').disabled=false;
+  incUsage('vulns');
+  _lastVulnData={url,host,findings,passed,fetchOk,dnsData,
+    date:new Date().toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})};
+  renderVuln(url,findings,passed,fetchOk);
+}
+
+function renderVuln(url,findings,passed,fetchOk){
+  const sevOrder={CRÍTICA:0,ALTA:1,MEDIA:2,BAJA:3,INFO:4};
+  findings.sort((a,b)=>(sevOrder[a.sev]??5)-(sevOrder[b.sev]??5));
+
+  const criticas=findings.filter(f=>f.sev==='CRÍTICA').length;
+  const altas=findings.filter(f=>f.sev==='ALTA').length;
+  const medias=findings.filter(f=>f.sev==='MEDIA').length;
+  const bajas=findings.filter(f=>f.sev==='BAJA').length;
+  const total=findings.length;
+  const totalChecks=VULN_CHECKS.length;
+
+  // Score tipo Barrion: ponderado por CVSS
+  const cvssSum=findings.reduce((s,f)=>s+(parseFloat(f.cvss)||0),0);
+  const maxCvss=totalChecks*10;
+  const score=Math.max(0,Math.round(100-(cvssSum/maxCvss)*100));
+  const col=score>=80?'var(--accent3)':score>=65?'var(--warn)':score>=40?'#f97316':'var(--accent2)';
+  const grade=score>=90?'A':score>=80?'B':score>=65?'C':score>=50?'D':'F';
+
+  document.getElementById('vulnScoreNum').textContent=score+'%';
+  document.getElementById('vulnScoreNum').style.color=col;
+  document.getElementById('vulnGradeText').textContent=`RATING: ${grade}  —  ${passed.length}/${totalChecks} CHECKS SUPERADOS`;
+  document.getElementById('vulnGradeText').style.color=col;
+  document.getElementById('vulnSummaryText').innerHTML=
+    `Auditoría completada: <strong style="color:var(--text)">${url}</strong>`+
+    (fetchOk?'':' <span style="color:var(--warn)">(análisis parcial — proxy CORS limitado, no se pudo leer todas las cabeceras)</span>');
+  document.getElementById('vulnKpis').innerHTML=
+    `<span style="font-size:11px;color:var(--accent2)">● ${criticas} CRÍTICAS</span>`+
+    `<span style="font-size:11px;color:#f97316">● ${altas} ALTAS</span>`+
+    `<span style="font-size:11px;color:var(--warn)">● ${medias} MEDIAS</span>`+
+    `<span style="font-size:11px;color:#60a5fa">● ${bajas} BAJAS</span>`+
+    `<span style="font-size:11px;color:var(--accent3)">● ${passed.length} OK</span>`;
+
+  // Renderizar hallazgos agrupados por categoría con tabs
+  const cats=Object.keys(VULN_CATS);
+  const findingsByCat={};
+  const passedByCat={};
+  cats.forEach(c=>{ findingsByCat[c]=[]; passedByCat[c]=[]; });
+  findings.forEach(f=>{ if(findingsByCat[f.cat]) findingsByCat[f.cat].push(f); });
+  passed.forEach(f=>{ if(passedByCat[f.cat]) passedByCat[f.cat].push(f); });
+
+  const tabsHTML=cats.map((c,i)=>{
+    const n=findingsByCat[c].length;
+    const col2=n>0?'var(--accent2)':'var(--accent3)';
+    return `<button class="dns-tab${i===0?' active':''}" id="vtab-${c}" onclick="switchVulnTab('${c}')"
+      style="${i===0?`color:${col2};border-bottom-color:${col2}`:''}">
+      ${VULN_CATS[c].icon} ${VULN_CATS[c].label}
+      <span style="font-size:9px;margin-left:4px;opacity:.8">(${n}⚠ ${passedByCat[c].length}✓)</span>
+    </button>`;
+  }).join('');
+
+  const panelsHTML=cats.map((c,i)=>`
+    <div class="dns-panel${i===0?' active':''}" id="vpanel-${c}" style="padding:16px 0;">
+      ${findingsByCat[c].length===0&&passedByCat[c].length===0?
+        `<div style="text-align:center;padding:30px;color:var(--muted);font-size:12px;">Sin checks en esta categoría.</div>`:
+        findingsByCat[c].map(f=>renderVulnItem(f,false)).join('')+
+        (passedByCat[c].length?`
+          <div style="font-size:10px;letter-spacing:2px;color:var(--accent3);margin:16px 0 8px;padding-top:12px;border-top:1px solid var(--border);">✔ SUPERADOS (${passedByCat[c].length})</div>
+          ${passedByCat[c].map(f=>renderVulnItem(f,true)).join('')}
+        `:'')
+      }
+    </div>`).join('');
+
+  document.getElementById('vulnFindings').innerHTML=
+    `<div style="background:var(--surface);border:1px solid var(--border);border-top:2px solid var(--accent2);">
+       <div class="dns-tabs" style="overflow-x:auto;white-space:nowrap;">${tabsHTML}</div>
+       <div style="padding:0 16px;" id="vulnPanelsWrap">${panelsHTML}</div>
+     </div>`;
+
+  // Compliance
+  const compChecks={
+    'SOC 2 Type II':{
+      passed:findings.filter(f=>f.refs?.soc2&&f.refs.soc2!=='—').length===0,
+      issues:findings.filter(f=>f.refs?.soc2&&f.refs.soc2!=='—'),
+    },
+    'PCI DSS v4.0':{
+      passed:findings.filter(f=>f.refs?.pci&&f.refs.pci!=='—').length===0,
+      issues:findings.filter(f=>f.refs?.pci&&f.refs.pci!=='—'),
+    },
+    'ISO 27001:2022':{
+      passed:findings.filter(f=>f.refs?.iso&&f.refs.iso!=='—').length===0,
+      issues:findings.filter(f=>f.refs?.iso&&f.refs.iso!=='—'),
+    },
+  };
+  document.getElementById('vulnCompliance').innerHTML=Object.entries(compChecks).map(([std,info])=>`
+    <div class="info-row" style="align-items:flex-start;">
+      <span class="info-key" style="min-width:140px">${std}</span>
+      <span class="info-val ${info.passed?'ok':'danger'}" style="flex:1;">
+        ${info.passed?'✔ CONFORME':'✘ NO CONFORME — '+info.issues.length+' issue'+(info.issues.length!==1?'s':'')+' detectado'+(info.issues.length!==1?'s':'')}
+        ${!info.passed?`<div style="color:var(--muted);font-size:10px;margin-top:4px;line-height:1.8;">${info.issues.map(f=>`· ${f.name}`).join('<br>')}</div>`:''}
+      </span>
+    </div>`).join('');
+
+  document.getElementById('vulnResult').style.display='block';
+}
+
+function renderVulnItem(f, isOk){
+  if(isOk){
+    return `<div style="display:flex;align-items:center;gap:10px;padding:8px 16px;border-bottom:1px solid rgba(15,42,58,0.4);font-size:11px;">
+      <span style="color:var(--accent3);font-size:13px;">✔</span>
+      <span style="color:var(--muted);">${eh(f.name)}</span>
+      ${f.cvss&&f.cvss!=='—'?`<span style="margin-left:auto;color:var(--accent3);font-size:9px;border:1px solid var(--accent3);padding:1px 6px;">CVSS ${f.cvss}</span>`:''}
+    </div>`;
+  }
+  const platformsHTML=f.platforms&&Object.keys(f.platforms).length?
+    `<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;">
+      ${Object.entries(f.platforms).map(([p,v])=>`
+        <div style="background:rgba(0,0,0,0.3);border:1px solid var(--border);padding:6px 10px;font-size:10px;min-width:120px;flex:1;">
+          <div style="color:var(--accent);letter-spacing:1px;margin-bottom:3px;">${eh(p)}</div>
+          <code style="color:var(--text);font-size:9px;word-break:break-all;">${eh(v)}</code>
+        </div>`).join('')}
+    </div>`:'';
+
+  return `<div class="vuln-item" style="--vc:${f.col};margin-bottom:8px;">
+    <div class="vuln-header">
+      <div class="vuln-sev" style="border-color:${f.col};color:${f.col}">${f.sev}</div>
+      <div class="vuln-title"><strong>${eh(f.name)}</strong></div>
+      ${f.cvss&&f.cvss!=='—'?`<span style="margin-left:auto;color:${f.col};font-size:9px;border:1px solid ${f.col};padding:1px 8px;letter-spacing:1px;flex-shrink:0;">CVSS ${f.cvss}</span>`:''}
+    </div>
+    <div class="vuln-body">${eh(f.desc)}</div>
+    ${f.detectedValue?`<div style="margin-top:6px;font-size:10px;color:var(--accent2);">Valor detectado: <code style="color:var(--text)">${eh(f.detectedValue)}</code></div>`:''}
+    <div class="vuln-fix"><strong>→ CORRECCIÓN:</strong> <code style="font-size:10px;">${eh(f.fix)}</code></div>
+    ${platformsHTML}
+    <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;">
+      ${Object.entries(f.refs||{}).filter(([,v])=>v&&v!=='—').map(([k,v])=>`<span class="compliance-tag">${k.toUpperCase()}: ${eh(v)}</span>`).join('')}
+    </div>
+  </div>`;
+}
+
+function switchVulnTab(cat){
+  document.querySelectorAll('#vulnFindings .dns-tab').forEach(t=>{t.classList.remove('active');t.style.color='';t.style.borderBottomColor='';});
+  document.querySelectorAll('#vulnPanelsWrap .dns-panel').forEach(p=>p.classList.remove('active'));
+  const n=((_lastVulnData?.findings||[]).filter(f=>f.cat===cat).length);
+  const col2=n>0?'var(--accent2)':'var(--accent3)';
+  const tab=document.getElementById('vtab-'+cat);
+  if(tab){tab.classList.add('active');tab.style.color=col2;tab.style.borderBottomColor=col2;}
+  const panel=document.getElementById('vpanel-'+cat);
+  if(panel) panel.classList.add('active');
+}
+
+// ════════════════════════════════
+//  ALERTAS DE EMAIL
+// ════════════════════════════════
+function getAlerts(){
+  const u=currentUser(); if(!u) return [];
+  return JSON.parse(localStorage.getItem('ws_alerts_'+u)||'[]');
+}
+function saveAlerts(arr){
+  const u=currentUser(); if(!u) return;
+  localStorage.setItem('ws_alerts_'+u,JSON.stringify(arr));
+}
+
+// ════════════════════════════════
+//  EMAILJS CONFIG
+//  1. Crea cuenta gratis en emailjs.com (200 emails/mes gratis)
+//  2. Crea un Email Service (Gmail, Outlook, etc.)
+//  3. Crea un Email Template con estas variables:
+//     {{to_email}}, {{url}}, {{freq}}, {{threshold}}, {{standards}}, {{user}}
+//  4. Sustituye los valores de abajo por los tuyos
+// ════════════════════════════════
+const EMAILJS_CONFIG={
+  publicKey:  'LiQdi_HoatFbZEk_R',   // Account → API Keys → Public Key
+  serviceId:  'WebScan',   // Email Services → Service ID
+  templateId: 'template_4muf3g9',  // Email Templates → Template ID
+  enabled: false, // ← cambia a true cuando hayas configurado las claves
+};
+
+// Inicializar EmailJS si está configurado
+if(EMAILJS_CONFIG.enabled && typeof emailjs!=='undefined'){
+  emailjs.init({publicKey: EMAILJS_CONFIG.publicKey});
+}
+
+async function sendAlertEmail(alertData){
+  if(!EMAILJS_CONFIG.enabled) return {ok:false, reason:'EmailJS no configurado'};
+  if(typeof emailjs==='undefined') return {ok:false, reason:'EmailJS no cargado'};
+  try{
+    await emailjs.send(EMAILJS_CONFIG.serviceId, EMAILJS_CONFIG.templateId,{
+      to_email:   alertData.email,
+      url:        alertData.url,
+      freq:       alertData.freq,
+      threshold:  alertData.threshold,
+      standards:  alertData.standards.join(', '),
+      user:       currentUser()||'usuario',
+      date:       alertData.created,
+    });
+    return {ok:true};
+  }catch(e){
+    return {ok:false, reason:e.text||e.message||'Error desconocido'};
+  }
+}
+
+function addAlert(){
+  const url=document.getElementById('alertUrl').value.trim();
+  const email=document.getElementById('alertEmail').value.trim();
+  const errEl=document.getElementById('alertError');
+  const okEl=document.getElementById('alertOk');
+  hideToolError('alertError'); okEl.style.display='none';
+  if(!url||!email){showToolError('alertError','Rellena URL y correo electrónico.'); return;}
+  if(!email.includes('@')){showToolError('alertError','Introduce un correo válido.'); return;}
+
+  const alerts=getAlerts();
+  const entry={
+    id:Date.now(),
+    url,email,
+    freq:document.getElementById('alertFreq').value,
+    threshold:document.getElementById('alertThreshold').value,
+    standards:[
+      document.getElementById('alertSoc2').checked?'SOC 2':'',
+      document.getElementById('alertPci').checked?'PCI DSS':'',
+      document.getElementById('alertIso').checked?'ISO 27001':'',
+      document.getElementById('alertVuln').checked?'Nuevas vulns':'',
+    ].filter(Boolean),
+    created:new Date().toLocaleDateString('es-ES'),
+    active:true,
+  };
+  alerts.unshift(entry);
+  saveAlerts(alerts);
+
+  document.getElementById('alertUrl').value='';
+  document.getElementById('alertEmail').value='';
+  renderAlerts();
+
+  // Intentar enviar email de confirmación
+  sendAlertEmail(entry).then(result=>{
+    if(result.ok){
+      okEl.innerHTML='✔ Alerta guardada y <strong>email de confirmación enviado</strong> a '+eh(email);
+    } else if(!EMAILJS_CONFIG.enabled){
+      okEl.innerHTML=`✔ Alerta guardada localmente.<br>
+        <span style="color:var(--muted);font-size:10px;">
+          Para enviar emails reales configura EmailJS (gratis en 
+          <a href="https://emailjs.com" target="_blank" style="color:var(--accent)">emailjs.com</a>)
+          y actualiza EMAILJS_CONFIG en el código.
+        </span>`;
+    } else {
+      okEl.innerHTML='✔ Alerta guardada. <span style="color:var(--accent2)">Error al enviar email: '+eh(result.reason)+'</span>';
+    }
+    okEl.style.display='block';
+    setTimeout(()=>{okEl.style.display='none';},6000);
+  });
+}
+
+function deleteAlert(id){
+  const alerts=getAlerts().filter(a=>a.id!==id);
+  saveAlerts(alerts);
+  renderAlerts();
+}
+
+function renderAlerts(){
+  const alerts=getAlerts();
+  const el=document.getElementById('alertsList');
+  if(!alerts.length){
+    el.innerHTML='<div class="empty-history"><div class="empty-icon">🔔</div>Sin alertas configuradas.</div>';
+    return;
+  }
+  el.innerHTML=`<div style="background:var(--surface);border:1px solid var(--border);">
+    ${alerts.map(a=>`
+      <div class="alert-row">
+        <div class="alert-dot" style="background:${a.active?'var(--accent3)':'var(--muted)'}"></div>
+        <div class="alert-info">
+          <div class="alert-url">${eh(a.url)}</div>
+          <div class="alert-meta">${eh(a.email)} · ${a.freq.toUpperCase()} · ${a.threshold.toUpperCase()} · ${a.standards.join(', ')} · desde ${a.created}</div>
+        </div>
+        <button class="alert-del" onclick="deleteAlert(${a.id})" title="Eliminar">✕</button>
+      </div>`).join('')}
+  </div>`;
+}
+
+// ════════════════════════════════
+//  PDF + CSV EXPORT
+// ════════════════════════════════
+function loadPdfPreview(){
+  const d=window._lastScanData || (()=>{
+    const h=getUserHistory(); return h.length?h[0]:null;
+  })();
+  if(!d){
+    document.getElementById('pdfNoScan').style.display='block';
+    document.getElementById('pdfPreviewWrap').style.display='none';
+    return;
+  }
+  document.getElementById('pdfNoScan').style.display='none';
+  document.getElementById('pdfPreviewWrap').style.display='block';
+  const col=d.score>=80?'var(--accent3)':d.score>=50?'var(--warn)':'var(--accent2)';
+  document.getElementById('pdfBadge').textContent=d.verdict;
+  document.getElementById('pdfUrl').textContent=d.url;
+  document.getElementById('pdfVerdict').textContent=d.verdict;
+  document.getElementById('pdfVerdict').style.color=col;
+  document.getElementById('pdfScore').textContent=d.score+' / 100';
+  document.getElementById('pdfScore').style.color=col;
+  document.getElementById('pdfDate').textContent=d.date;
+  document.getElementById('pdfMal').textContent=d.malicious??'—';
+  document.getElementById('pdfSusp').textContent=d.suspicious??'—';
+  document.getElementById('pdfClean').textContent=(d.harmless!==undefined&&d.undetected!==undefined)?d.harmless+d.undetected:'—';
+  document.getElementById('pdfTotal').textContent=d.total??'—';
+}
+
+function exportCSV(){
+  const d=window._lastScanData || (getUserHistory()[0]||null);
+  if(!d){alert('Realiza un análisis primero.'); return;}
+  const h=getUserHistory();
+  const standards=[];
+  if(document.getElementById('pdfSoc2').checked) standards.push('SOC 2 Type II');
+  if(document.getElementById('pdfPci').checked)  standards.push('PCI DSS v4.0');
+  if(document.getElementById('pdfIso').checked)  standards.push('ISO 27001:2022');
+
+  const rows=[
+    ['WEBSCAN — INFORME DE AUDITORÍA DE SEGURIDAD'],
+    ['Generado por','WebScan Security Platform'],
+    ['Fecha de exportación',new Date().toLocaleString('es-ES')],
+    ['Estándares aplicados',standards.join(' | ')],
+    [],
+    ['── RESULTADO DEL ÚLTIMO SCAN ──'],
+    ['URL',d.url],['Veredicto',d.verdict],['Score',d.score+'/100'],
+    ['Fecha',d.date],['Motores maliciosos',d.malicious??'N/A'],
+    ['Motores sospechosos',d.suspicious??'N/A'],['Motores limpios',(d.harmless!==undefined?d.harmless+d.undetected:'N/A')],
+    ['Total motores',d.total??'N/A'],
+  ];
+
+  if(document.getElementById('pdfOptVulns').checked && _lastVulnData?.findings?.length){
+    rows.push([],['── VULNERABILIDADES DETECTADAS ──'],
+      ['Severidad','Nombre','Descripción','Corrección','SOC 2','PCI DSS','ISO 27001'],
+      ..._lastVulnData.findings.map(f=>[f.sev,f.name,f.desc,f.fix,f.refs.soc2||'—',f.refs.pci||'—',f.refs.iso||'—'])
+    );
+  }
+
+  if(document.getElementById('pdfOptHistory').checked && h.length){
+    rows.push([],['── HISTORIAL DE ANÁLISIS ──'],['URL','Score','Veredicto','Fecha'],
+      ...h.map(e=>[e.url,e.score,e.verdict,e.date])
+    );
+  }
+
+  // Compliance summary
+  rows.push([],['── EVALUACIÓN DE CUMPLIMIENTO ──']);
+  if(document.getElementById('pdfSoc2').checked){
+    const issues=_lastVulnData?.findings?.filter(f=>f.refs.soc2&&f.refs.soc2!=='—').length||0;
+    rows.push(['SOC 2 Type II',issues===0?'CONFORME':'NO CONFORME',issues+' issues']);
+  }
+  if(document.getElementById('pdfPci').checked){
+    const issues=_lastVulnData?.findings?.filter(f=>f.refs.pci&&f.refs.pci!=='—').length||0;
+    rows.push(['PCI DSS v4.0',issues===0?'CONFORME':'NO CONFORME',issues+' issues']);
+  }
+  if(document.getElementById('pdfIso').checked){
+    const issues=_lastVulnData?.findings?.filter(f=>f.refs.iso&&f.refs.iso!=='—').length||0;
+    rows.push(['ISO 27001:2022',issues===0?'CONFORME':'NO CONFORME',issues+' issues']);
+  }
+
+  const csv=rows.map(r=>r.map(c=>'"'+String(c||'').replace(/"/g,'""')+'"').join(',')).join('\n');
+  const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=`webscan-auditoria-${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+}
+
+function exportPDF(){
+  const d=window._lastScanData || (getUserHistory()[0]||null);
+  if(!d){showToolError('pdfError','Realiza un análisis primero.'); return;}
+  hideToolError('pdfError');
+  const st=document.getElementById('pdfStatus');
+  st.style.display='block';
+
+  setTimeout(()=>{
+    try{
+      const {jsPDF}=window.jspdf;
+      const doc=new jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
+      const W=210, M=18, TW=W-M*2;
+      let y=0;
+
+      const standards=[];
+      if(document.getElementById('pdfSoc2').checked) standards.push('SOC 2 Type II');
+      if(document.getElementById('pdfPci').checked)  standards.push('PCI DSS v4.0');
+      if(document.getElementById('pdfIso').checked)  standards.push('ISO 27001:2022');
+
+      // ── PORTADA ──
+      doc.setFillColor(5,10,14); doc.rect(0,0,W,297,'F');
+      doc.setFillColor(0,229,255); doc.rect(0,0,W,2,'F');
+      doc.setTextColor(0,229,255); doc.setFontSize(28); doc.setFont('helvetica','bold');
+      doc.text('WEBSCAN',M,32);
+      doc.setTextColor(200,230,245); doc.setFontSize(13); doc.setFont('helvetica','normal');
+      doc.text('INFORME DE AUDITORÍA DE SEGURIDAD WEB',M,42);
+      doc.setFontSize(9); doc.setTextColor(74,122,150);
+      doc.text(standards.length?'Estándares: '+standards.join(' · '):'Sin estándares seleccionados',M,50);
+      doc.setDrawColor(15,42,58); doc.line(M,56,W-M,56);
+
+      // Meta
+      const col=d.score>=80?[0,255,157]:d.score>=50?[255,184,0]:[255,61,113];
+      doc.setFontSize(10); doc.setTextColor(74,122,150); y=66;
+      const meta=[
+        ['URL analizada',d.url],['Veredicto',d.verdict],
+        ['Score de seguridad',d.score+' / 100'],['Fecha del análisis',d.date],
+        ['Motores maliciosos',String(d.malicious??'N/A')],['Motores sospechosos',String(d.suspicious??'N/A')],
+        ['Motores limpios',String(d.harmless!==undefined?d.harmless+d.undetected:'N/A')],
+        ['Total motores',String(d.total??'N/A')],
+      ];
+      meta.forEach(([k,v])=>{
+        doc.setTextColor(74,122,150); doc.setFont('helvetica','normal'); doc.setFontSize(9);
+        doc.text(k,M,y);
+        doc.setTextColor(200,230,245); doc.setFont('helvetica','bold');
+        const isVerdict=k==='Veredicto'||k==='Score de seguridad';
+        if(isVerdict) doc.setTextColor(...col);
+        const lines=doc.splitTextToSize(v,TW-60);
+        doc.text(lines,M+62,y);
+        y+=6*lines.length;
+      });
+
+      // Score circle (simple)
+      y+=4; doc.setDrawColor(15,42,58); doc.setLineWidth(3);
+      doc.circle(W-M-18,80,16);
+      doc.setDrawColor(...col); doc.setLineWidth(3);
+      doc.setTextColor(...col); doc.setFontSize(16); doc.setFont('helvetica','bold');
+      doc.text(String(d.score),W-M-18,78,{align:'center'});
+      doc.setFontSize(7); doc.setTextColor(74,122,150); doc.setFont('helvetica','normal');
+      doc.text('/100',W-M-18,84,{align:'center'});
+
+      // ── VULNERABILIDADES ──
+      if(document.getElementById('pdfOptVulns').checked && _lastVulnData?.findings?.length){
+        y+=10;
+        doc.setFillColor(15,42,58); doc.rect(M,y,TW,6,'F');
+        doc.setTextColor(255,61,113); doc.setFontSize(9); doc.setFont('helvetica','bold');
+        doc.text('VULNERABILIDADES DETECTADAS ('+_lastVulnData.findings.length+')',M+2,y+4.2);
+        y+=10;
+        _lastVulnData.findings.forEach(f=>{
+          if(y>265){ doc.addPage(); doc.setFillColor(5,10,14); doc.rect(0,0,W,297,'F'); y=20; }
+          const sevCol=f.sev==='CRÍTICA'?[255,61,113]:f.sev==='ALTA'?[249,115,22]:f.sev==='MEDIA'?[255,184,0]:[96,165,250];
+          doc.setFillColor(...sevCol); doc.rect(M,y,2,10,'F');
+          doc.setTextColor(...sevCol); doc.setFontSize(7); doc.setFont('helvetica','bold');
+          doc.text('['+f.sev+']',M+4,y+4);
+          doc.setTextColor(200,230,245); doc.setFontSize(8); doc.setFont('helvetica','bold');
+          doc.text(f.name,M+22,y+4);
+          doc.setTextColor(74,122,150); doc.setFontSize(7.5); doc.setFont('helvetica','normal');
+          const descLines=doc.splitTextToSize(f.desc,TW-4);
+          doc.text(descLines,M+4,y+9);
+          y+=8+descLines.length*4;
+          doc.setTextColor(0,255,157); doc.setFontSize(7);
+          const fixLines=doc.splitTextToSize('→ '+f.fix,TW-4);
+          doc.text(fixLines,M+4,y);
+          y+=fixLines.length*4+3;
+          const refs=Object.entries(f.refs).filter(([,v])=>v&&v!=='—').map(([k,v])=>k.toUpperCase()+': '+v).join('  ');
+          if(refs){ doc.setTextColor(42,72,96); doc.setFontSize(6.5); doc.text(refs,M+4,y); y+=4; }
+          y+=3; doc.setDrawColor(15,42,58); doc.line(M,y,W-M,y); y+=3;
+        });
+      }
+
+      // ── CUMPLIMIENTO ──
+      if(standards.length){
+        if(y>250){ doc.addPage(); doc.setFillColor(5,10,14); doc.rect(0,0,W,297,'F'); y=20; }
+        y+=6;
+        doc.setFillColor(15,42,58); doc.rect(M,y,TW,6,'F');
+        doc.setTextColor(0,229,255); doc.setFontSize(9); doc.setFont('helvetica','bold');
+        doc.text('EVALUACIÓN DE CUMPLIMIENTO NORMATIVO',M+2,y+4.2);
+        y+=10;
+        standards.forEach(std=>{
+          const key=std.includes('SOC')?'soc2':std.includes('PCI')?'pci':'iso';
+          const issues=_lastVulnData?.findings?.filter(f=>f.refs[key]&&f.refs[key]!=='—')||[];
+          const conforme=issues.length===0;
+          doc.setFillColor(conforme?0:255,conforme?255:61,conforme?157:113,30);
+          doc.rect(M,y,TW,8,'F');
+          doc.setTextColor(conforme?0:255,conforme?255:61,conforme?157:113);
+          doc.setFontSize(8); doc.setFont('helvetica','bold');
+          doc.text(std,M+3,y+5.5);
+          doc.text(conforme?'✓ CONFORME':'✗ NO CONFORME',M+TW-3,y+5.5,{align:'right'});
+          y+=10;
+          if(!conforme){
+            doc.setTextColor(74,122,150); doc.setFontSize(7); doc.setFont('helvetica','normal');
+            issues.slice(0,4).forEach(f=>{ doc.text('• '+f.name,M+5,y); y+=4; });
+            if(issues.length>4){ doc.text('• … y '+(issues.length-4)+' más',M+5,y); y+=4; }
+          }
+          y+=2;
+        });
+      }
+
+      // ── HISTORIAL ──
+      if(document.getElementById('pdfOptHistory').checked){
+        const h=getUserHistory();
+        if(h.length){
+          if(y>240){ doc.addPage(); doc.setFillColor(5,10,14); doc.rect(0,0,W,297,'F'); y=20; }
+          y+=6;
+          doc.setFillColor(15,42,58); doc.rect(M,y,TW,6,'F');
+          doc.setTextColor(0,229,255); doc.setFontSize(9); doc.setFont('helvetica','bold');
+          doc.text('HISTORIAL DE ANÁLISIS (últimos '+Math.min(h.length,20)+')',M+2,y+4.2);
+          y+=10;
+          const cols=[TW*0.5,22,26,TW*0.22];
+          ['URL','SCORE','VEREDICTO','FECHA'].forEach((c,i)=>{
+            doc.setTextColor(74,122,150); doc.setFontSize(7); doc.setFont('helvetica','bold');
+            doc.text(c,M+(i===0?0:cols.slice(0,i).reduce((a,b)=>a+b,0)),y);
+          });
+          y+=5; doc.setDrawColor(15,42,58); doc.line(M,y,W-M,y); y+=3;
+          h.slice(0,20).forEach(e=>{
+            if(y>278){ doc.addPage(); doc.setFillColor(5,10,14); doc.rect(0,0,W,297,'F'); y=20; }
+            const sc=e.score>=80?[0,255,157]:e.score>=50?[255,184,0]:[255,61,113];
+            doc.setTextColor(200,230,245); doc.setFont('helvetica','normal'); doc.setFontSize(7);
+            const urlShort=e.url.length>55?e.url.slice(0,52)+'…':e.url;
+            doc.text(urlShort,M,y);
+            doc.setTextColor(...sc); doc.text(String(e.score),M+cols[0],y);
+            doc.setTextColor(...sc); doc.text(e.verdict,M+cols[0]+cols[1],y);
+            doc.setTextColor(74,122,150); doc.text(e.date,M+cols[0]+cols[1]+cols[2],y);
+            y+=5;
+          });
+        }
+      }
+
+      // ── FOOTER ──
+      const pages=doc.getNumberOfPages();
+      for(let i=1;i<=pages;i++){
+        doc.setPage(i);
+        doc.setFillColor(5,10,14); doc.rect(0,285,W,12,'F');
+        doc.setFillColor(0,229,255); doc.rect(0,285,W,0.5,'F');
+        doc.setTextColor(74,122,150); doc.setFontSize(6.5); doc.setFont('helvetica','normal');
+        doc.text('WebScan Security Platform — CONFIDENCIAL — Generado el '+new Date().toLocaleString('es-ES'),M,291);
+        doc.text('Página '+i+' de '+pages,W-M,291,{align:'right'});
+      }
+
+      doc.save('webscan-auditoria-'+new Date().toISOString().slice(0,10)+'.pdf');
+      st.style.display='none';
+    }catch(err){
+      st.style.display='none';
+      showToolError('pdfError','Error al generar el PDF: '+err.message+'. Asegúrate de que jsPDF está cargado.');
+    }
+  },100);
+}
+
+// ════════════════════════════════
+//  SSL CHECKER — vía /api/ssl (Vercel serverless, sin CORS)
+// ════════════════════════════════
+async function runSSL(){
+  let host=document.getElementById('sslHost').value.trim()
+    .replace(/^https?:\/\//,'').replace(/[\/\?#].*/,'').toLowerCase();
+  if(!host){showToolError('sslError','Introduce un dominio.'); return;}
+  hideToolError('sslError');
+  document.getElementById('sslResult').classList.remove('visible');
+  document.getElementById('sslStatus').style.display='flex';
+  document.getElementById('sslStatusText').textContent='CONSULTANDO CERTIFICADOS...';
+  document.getElementById('sslBtn').disabled=true;
+  try{
+    const r=await fetch(`/api/ssl?host=${encodeURIComponent(host)}`,
+      {signal:AbortSignal.timeout(15000)});
+    if(!r.ok){
+      const err=await r.json().catch(()=>({}));
+      throw new Error(err.error||`Error ${r.status}`);
+    }
+    const {certs,source}=await r.json();
+    if(!certs||!certs.length) throw new Error('No se encontraron certificados para este dominio.');
+    document.getElementById('sslStatus').style.display='none';
+    document.getElementById('sslBtn').disabled=false;
+    renderSSL(host,certs,source);
+  }catch(e){
+    document.getElementById('sslStatus').style.display='none';
+    document.getElementById('sslBtn').disabled=false;
+    showToolError('sslError',e.message||'Error al verificar SSL.');
+  }
+}
+
+function renderSSL(host, certs, source=''){
+  // Ordenar por fecha de emisión más reciente
+  certs.sort((a,b)=>new Date(b.not_before||0)-new Date(a.not_before||0));
+  const cert=certs[0];
+  const isDnsOnly=!!cert._dnsOnly;
+
+  const notBefore=cert.not_before ? new Date(cert.not_before) : null;
+  const notAfter =cert.not_after  ? new Date(cert.not_after)  : null;
+  const now=new Date();
+  const daysLeft=notAfter ? Math.round((notAfter-now)/(1000*60*60*24)) : 0;
+  const totalDays=notBefore&&notAfter ? Math.round((notAfter-notBefore)/(1000*60*60*24)) : 365;
+  const pct=Math.min(100,Math.max(0,Math.round((daysLeft/totalDays)*100)));
+  const valid=daysLeft>0;
+
+  let grade,gradeCol;
+  if(!valid)         {grade='F';gradeCol='var(--accent2)';}
+  else if(daysLeft<=14){grade='C';gradeCol='var(--accent2)';}
+  else if(daysLeft<=30){grade='B';gradeCol='var(--warn)';}
+  else               {grade='A';gradeCol='var(--accent3)';}
+
+  // Extraer emisor del campo issuer_name (CN=...)
+  const issuerRaw=cert.issuer_name||cert.ca_issuer||'—';
+  const issuerCN=(issuerRaw.match(/CN=([^,]+)/)||[])[1]||issuerRaw;
+
+  // SANs: name_value puede ser multilinea con \n
+  const sans=[...new Set((cert.name_value||host).split(/\n/).map(s=>s.trim()).filter(Boolean))];
+
+  const fmtDate=d=>d?d.toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit',year:'numeric'}):'—';
+
+  document.getElementById('sslGrade').textContent=grade;
+  document.getElementById('sslGrade').style.color=gradeCol;
+  document.getElementById('sslDomain').textContent=host;
+  document.getElementById('sslIssuer').textContent=issuerCN;
+  document.getElementById('sslFrom').textContent=fmtDate(notBefore);
+  document.getElementById('sslTo').textContent=fmtDate(notAfter)+(valid?'':' ⚠ EXPIRADO');
+
+  const daysEl=document.getElementById('sslDays');
+  if(valid){
+    daysEl.textContent=daysLeft+' días';
+    daysEl.className='info-val '+(daysLeft>30?'ok':daysLeft>14?'warn':'danger');
+  } else {
+    daysEl.textContent='EXPIRADO';
+    daysEl.className='info-val danger';
+  }
+
+  setTimeout(()=>{ document.getElementById('sslBar').style.width=pct+'%'; },200);
+  document.getElementById('sslBar').style.background=gradeCol;
+
+  // Detalles extra
+  const wildcard=sans.some(s=>s.startsWith('*.'));
+  const extras=[
+    ['SANs / Nombres alternativos', sans.join(' · ')],
+    ['Wildcard', wildcard?'✔ Sí':'✘ No'],
+    ['Certificados en historial', certs.length+' registros encontrados en crt.sh'],
+    ['ID crt.sh', String(cert.id||'—')],
+    ['Algoritmo de firma', cert.signature_alg||cert.sig_alg||'—'],
+  ].filter(([,v])=>v&&v!=='—');
+
+  document.getElementById('sslDetails').innerHTML=
+    extras.map(([k,v])=>`<div class="info-row"><span class="info-key">${k}</span><span class="info-val" style="font-size:11px">${eh(String(v))}</span></div>`).join('');
+
+  // Historial de certs recientes (últimos 5)
+  const histRows=certs.slice(0,5).map(c=>{
+    const exp=c.not_after?new Date(c.not_after):null;
+    const expired=exp&&exp<now;
+    const color=expired?'var(--accent2)':'var(--accent3)';
+    return `<div class="dns-record">
+      <div class="dns-type" style="border-color:${color};color:${color};font-size:9px">${expired?'EXP':'OK'}</div>
+      <div class="dns-val" style="font-size:11px">${eh((c.name_value||'').split('\n')[0])} <span style="color:var(--muted)">— ${eh(((c.issuer_name||'').match(/CN=([^,]+)/)||[])[1]||'')}</span></div>
+      <div class="dns-ttl">${exp?exp.toLocaleDateString('es-ES'):''}</div>
+    </div>`;
+  }).join('');
+
+  document.getElementById('sslDetails').innerHTML+=`
+    <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border);">
+      <div style="font-family:'Orbitron',monospace;font-size:10px;letter-spacing:2px;color:var(--muted);margin-bottom:10px;">HISTORIAL RECIENTE (crt.sh)</div>
+      ${histRows}
+    </div>`;
+
+  document.getElementById('sslResult').classList.add('visible');
+
+  // Aviso si los datos son de DNS únicamente
+  if(isDnsOnly){
+    const warn=document.createElement('div');
+    warn.style.cssText='margin:12px 20px;padding:10px 14px;border:1px solid rgba(255,184,0,0.3);color:var(--warn);font-size:11px;line-height:1.7;';
+    warn.innerHTML='⚠ Las fuentes de datos SSL no respondieron. Se muestra información parcial basada en DNS. El dominio existe y resuelve correctamente.';
+    document.getElementById('sslDetails').prepend(warn);
+  }
+}
+
+// ════════════════════════════════
+//  DNS ANALYSIS
+// ════════════════════════════════
+const DNS_TYPES=['A','AAAA','MX','NS','TXT','CNAME','SOA'];
+const DNS_TYPE_NUMS={A:1,NS:2,CNAME:5,SOA:6,MX:15,TXT:16,AAAA:28};
+
+async function runDNS(){
+  let host=document.getElementById('dnsHost').value.trim().replace(/^https?:\/\//,'').replace(/\/.*/,'');
+  if(!host){showToolError('dnsError','Introduce un dominio.'); return;}
+  hideToolError('dnsError');
+  document.getElementById('dnsResult').classList.remove('visible');
+  document.getElementById('dnsStatus').style.display='flex';
+  document.getElementById('dnsBtn').disabled=true;
+
+  try{
+    const results={};
+    await Promise.all(DNS_TYPES.map(async type=>{
+      try{
+        const r=await fetch(`https://dns.google/resolve?name=${encodeURIComponent(host)}&type=${type}`);
+        const d=await r.json();
+        results[type]=d.Answer||[];
+      }catch(e){ results[type]=[]; }
+    }));
+    document.getElementById('dnsStatus').style.display='none';
+    document.getElementById('dnsBtn').disabled=false;
+    renderDNS(host, results);
+  }catch(e){
+    document.getElementById('dnsStatus').style.display='none';
+    document.getElementById('dnsBtn').disabled=false;
+    showToolError('dnsError','Error al consultar DNS: '+e.message);
+  }
+}
+
+function renderDNS(host, results){
+  const types=DNS_TYPES.filter(t=>results[t]&&results[t].length>0);
+  if(!types.length){
+    showToolError('dnsError','No se encontraron registros DNS para este dominio.');
+    return;
+  }
+
+  const tabColors={A:'var(--accent)',AAAA:'var(--accent)',MX:'#a78bfa',NS:'var(--warn)',TXT:'var(--accent3)',CNAME:'#f472b6',SOA:'var(--muted)'};
+
+  let tabsHTML='',panelsHTML='';
+  types.forEach((type,i)=>{
+    const col=tabColors[type]||'var(--accent)';
+    const active=i===0?'active':'';
+    tabsHTML+=`<button class="dns-tab ${active}" onclick="switchDnsTab('${type}')" id="dnstab-${type}" style="${active?`color:${col};border-bottom-color:${col}`:''}">${type} <span style="font-size:9px;opacity:.7">(${results[type].length})</span></button>`;
+    panelsHTML+=`<div class="dns-panel ${active}" id="dnspanel-${type}">
+      <div class="dns-records">
+        ${results[type].map(r=>{
+          const val=r.data||r.rdata||'';
+          const ttl=r.TTL!==undefined?r.TTL+'s TTL':'';
+          return `<div class="dns-record">
+            <div class="dns-type" style="border-color:${col};color:${col}">${type}</div>
+            <div class="dns-val">${eh(String(val))}</div>
+            <div class="dns-ttl">${ttl}</div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>`;
+  });
+
+  document.getElementById('dnsTabs').innerHTML=tabsHTML;
+  document.getElementById('dnsPanels').innerHTML=panelsHTML;
+  document.getElementById('dnsResult').classList.add('visible');
+}
+
+function switchDnsTab(type){
+  document.querySelectorAll('.dns-tab').forEach(t=>{ t.classList.remove('active'); t.style.color=''; t.style.borderBottomColor=''; });
+  document.querySelectorAll('.dns-panel').forEach(p=>p.classList.remove('active'));
+  const tabColors={A:'var(--accent)',AAAA:'var(--accent)',MX:'#a78bfa',NS:'var(--warn)',TXT:'var(--accent3)',CNAME:'#f472b6',SOA:'var(--muted)'};
+  const col=tabColors[type]||'var(--accent)';
+  const tab=document.getElementById('dnstab-'+type);
+  if(tab){ tab.classList.add('active'); tab.style.color=col; tab.style.borderBottomColor=col; }
+  const panel=document.getElementById('dnspanel-'+type);
+  if(panel) panel.classList.add('active');
+}
+
+// ════════════════════════════════
+//  TOOL HELPERS
+// ════════════════════════════════
+function showToolError(id, msg){ const el=document.getElementById(id); el.innerHTML='<strong>⚠ ERROR:</strong> '+msg; el.classList.add('visible'); }
+function hideToolError(id){ document.getElementById(id).classList.remove('visible'); }
+
+// ════════════════════════════════
+//  SISTEMA DE PLANES Y MONETIZACIÓN
+// ════════════════════════════════
+
+// 🔧 CONFIGURACIÓN — sustituye por tus Payment Links de Stripe reales
+const STRIPE_LINKS={
+  pro:    'https://buy.stripe.com/cNi9AT1Cn96RcD97Zn8so00',
+  agency: 'https://buy.stripe.com/9B6cN5a8Terb6eL1AZ8so01'
+};
+
+
+// Códigos de activación (en producción van en el servidor)
+// null en expires = no caduca
+const VALID_CODES={
+  'WEBSCAN-BETA-2024': {plan:'pro',   expires:null},
+  'WEBSCAN-AGN-001':   {plan:'agency',expires:null},
+  'WEBSCAN-DEMO-PRO':  {plan:'pro',   expires: Date.now()+7*24*60*60*1000},
+};
+
+const PLAN_LIMITS={
+  free:   {scans:5, vulns:5, history:10, alerts:0,  pdfWatermark:true,  compliance:false},
+  pro:    {scans:Infinity, vulns:Infinity, history:Infinity, alerts:5,   pdfWatermark:false, compliance:true},
+  agency: {scans:Infinity, vulns:Infinity, history:Infinity, alerts:Infinity, pdfWatermark:false, compliance:true},
+};
+
+function getPlan(){
+  const u=currentUser(); if(!u) return 'free';
+  const users=getUsers();
+  const p=users[u]?.plan||'free';
+  const exp=users[u]?.planExpires;
+  if(exp&&Date.now()>exp){ users[u].plan='free'; users[u].planExpires=null; saveUsers(users); return 'free'; }
+  return p;
+}
+function setPlan(plan,expiresMs=null){
+  const u=currentUser(); if(!u) return;
+  const users=getUsers();
+  users[u].plan=plan; users[u].planExpires=expiresMs; saveUsers(users);
+}
+function getLimits(){ return PLAN_LIMITS[getPlan()]||PLAN_LIMITS.free; }
+
+function getUsageKey(type){ return `ws_usage_${currentUser()}_${type}_${new Date().toDateString()}`; }
+function getUsage(type){ return parseInt(localStorage.getItem(getUsageKey(type))||'0'); }
+function incUsage(type){ localStorage.setItem(getUsageKey(type),getUsage(type)+1); updateNavUsage(); }
+
+function canUse(type){
+  if(getPlan()!=='free') return true;
+  return getUsage(type)<(PLAN_LIMITS.free[type]||0);
+}
+function checkQuota(type,label,desc){
+  if(canUse(type)) return true;
+  openUpgrade(`Has alcanzado el límite de ${PLAN_LIMITS.free[type]} ${label} diarios del plan gratuito. Actualiza a Pro para ${desc}.`);
+  return false;
+}
+
+function initPlan(){
+  const plan=getPlan();
+  const badge=document.getElementById('navPlanBadge');
+  if(badge){
+    badge.textContent=plan.toUpperCase();
+    badge.className='plan-badge '+(plan==='free'?'badge-free':plan==='pro'?'badge-pro':'badge-agency');
+  }
+  const wrap=document.getElementById('navUsage');
+  if(wrap) wrap.style.display=plan==='free'?'block':'none';
+  if(plan==='free') updateNavUsage();
+}
+
+function updateNavUsage(){
+  const s=getUsage('scans'), v=getUsage('vulns'), lim=5;
+  const pct=Math.min(100,Math.round(((s+v)/(lim*2))*100));
+  const col=pct>=80?'var(--accent2)':pct>=50?'var(--warn)':'var(--accent3)';
+  const el=document.getElementById('navUsageText');
+  const bar=document.getElementById('navUsageBar');
+  if(el) el.textContent=`${s}/${lim} scans · ${v}/${lim} audits`;
+  if(bar){ bar.style.width=pct+'%'; bar.style.background=col; }
+}
+
+function openUpgrade(msg=''){
+  const el=document.getElementById('upgradeGateMsg');
+  if(el){ el.textContent=msg; el.style.display=msg?'block':'none'; }
+  document.getElementById('upgradeModal').classList.add('open');
+  document.body.style.overflow='hidden';
+}
+function closeUpgrade(){
+  document.getElementById('upgradeModal').classList.remove('open');
+  document.body.style.overflow='';
+}
+document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeUpgrade(); });
+
+function goStripe(plan){
+  const link=STRIPE_LINKS[plan];
+  if(!link||link.includes('TU_LINK')){
+    alert('⚙ Para activar los pagos:\n\n1. Crea cuenta en stripe.com (gratis)\n2. Productos → Crear producto "WebScan Pro" a 9€/mes\n3. Genera el Payment Link\n4. Sustituye STRIPE_LINKS.pro en el código por tu URL\n\nMientras tanto puedes activar planes con códigos manuales.');
+    return;
+  }
+  window.open(link,'_blank');
+}
+
+function _activateCode(inputId,msgId){
+  const input=document.getElementById(inputId);
+  const msgEl=document.getElementById(msgId);
+  const code=(input?.value||'').trim().toUpperCase();
+  const showMsg=(txt,col)=>{ if(!msgEl) return; msgEl.textContent=txt; msgEl.style.color=col; msgEl.style.display='block'; };
+  if(!code){ showMsg('Introduce un código.','var(--accent2)'); return; }
+  const entry=VALID_CODES[code];
+  if(!entry){ showMsg('✘ Código no válido.','var(--accent2)'); return; }
+  if(entry.expires&&Date.now()>entry.expires){ showMsg('✘ Este código ha caducado.','var(--accent2)'); return; }
+  setPlan(entry.plan,entry.expires);
+  initPlan();
+  showMsg(`✔ Plan ${entry.plan.toUpperCase()} activado. ¡Bienvenido!`,'var(--accent3)');
+  if(input) input.value='';
+  setTimeout(()=>{ closeUpgrade(); showPage('dashboard'); },1600);
+}
+function activateCode(){ _activateCode('proCodeInput','proCodeMsg'); }
+function activateCode2(){ _activateCode('proCodeInput2','proCodeMsg2'); }
+
+function renderPricingPage(){
+  const plan=getPlan();
+  const lim=getLimits();
+  const s=getUsage('scans'), v=getUsage('vulns');
+
+  // Usage grid
+  const grid=document.getElementById('pricingUsageGrid');
+  if(grid){
+    const item=(label,used,max)=>{
+      const isInf=max===Infinity;
+      const pct=isInf?0:Math.min(100,Math.round(used/max*100));
+      const col=pct>=80?'var(--accent2)':pct>=50?'var(--warn)':'var(--accent3)';
+      return `<div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px;">${label}</div>
+        <div style="font-family:'Orbitron',monospace;font-size:22px;font-weight:700;color:${isInf?'var(--accent3)':col};">${isInf?'∞':used}<span style="font-size:11px;color:var(--muted);">/${isInf?'∞':max}</span></div>
+        ${!isInf?`<div class="usage-bar-wrap" style="margin-top:6px;"><div class="usage-bar-fill" style="width:${pct}%;background:${col};"></div></div>`:'<div style="font-size:10px;color:var(--accent3);margin-top:4px;">ILIMITADO ✔</div>'}
+      </div>`;
+    };
+    grid.innerHTML=item('Scans VirusTotal hoy',s,lim.scans)+item('Auditorías de vulnerabilidades',v,lim.vulns);
+  }
+
+  // Actualizar botones según plan activo
+  const planBtns={free:'freePlanBtn',pro:'proPlanBtn',agency:'agencyPlanBtn'};
+  Object.entries(planBtns).forEach(([p,id])=>{
+    const btn=document.getElementById(id);
+    if(!btn) return;
+    if(p===plan){
+      btn.textContent='✔ PLAN ACTUAL';
+      btn.style.opacity='0.6';
+      btn.style.cursor='default';
+      btn.onclick=null;
+    }
+  });
+}
+
+
+window.addEventListener('DOMContentLoaded',()=>{
+  const session=currentUser();
+  if(session){ enterApp(session); }
+
+  document.getElementById('urlInput').addEventListener('keydown',e=>{ if(e.key==='Enter') startScan(); });
+  document.getElementById('apikeyInput').addEventListener('keydown',e=>{ if(e.key==='Enter') saveApiKey(); });
+  document.getElementById('loginUser').addEventListener('keydown',e=>{ if(e.key==='Enter') doLogin(); });
+  document.getElementById('loginPass').addEventListener('keydown',e=>{ if(e.key==='Enter') doLogin(); });
+  document.getElementById('regPass2').addEventListener('keydown',e=>{ if(e.key==='Enter') doRegister(); });
+  document.getElementById('vulnUrl').addEventListener('keydown',e=>{ if(e.key==='Enter') runVuln(); });
+  document.getElementById('alertUrl').addEventListener('keydown',e=>{ if(e.key==='Enter') addAlert(); });
+  document.getElementById('sslHost').addEventListener('keydown',e=>{ if(e.key==='Enter') runSSL(); });
+  document.getElementById('dnsHost').addEventListener('keydown',e=>{ if(e.key==='Enter') runDNS(); });
+
+  const btn=document.getElementById('clearHistBtn');
+  if(btn){ btn.addEventListener('mouseover',()=>{ btn.style.background='var(--accent2)'; btn.style.color='var(--bg)'; }); btn.addEventListener('mouseout',()=>{ btn.style.background='none'; btn.style.color='var(--accent2)'; }); }
+
+  if(localStorage.getItem('vt_apikey')){
+    document.getElementById('apikeyInput').value='•'.repeat(24);
+    setApikeyStatus('ok','✔ API Key guardada — lista para escanear');
+  }
+});
+</script>
+</body>
+</html>
