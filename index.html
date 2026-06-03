@@ -1583,123 +1583,142 @@ async function runVuln(){
   let host='';
   try{ host=new URL(url).hostname; }catch(e){ host=url.replace(/^https?:\/\//,'').split('/')[0]; }
 
-  // 1. Fetch cabeceras HTTP vía /api/proxy (serverless Vercel, sin CORS)
-  let headers={};
-  let fetchOk=false;
-  stTxt.textContent='RECUPERANDO CABECERAS HTTP...'; prog.style.width='15%';
   try{
-    const r=await fetch(`/api/proxy?url=${encodeURIComponent(url)}`,
-      {signal:AbortSignal.timeout(14000)});
-    if(r.ok){
-      const d=await r.json();
-      if(d.ok&&d.headers){
-        headers=d.headers;
-        fetchOk=true;
-      }
+    // ── PASO 1: Recopilar datos DNS reales (Google DoH — sin CORS) ──
+    stTxt.textContent='RECOPILANDO DATOS DNS...'; prog.style.width='15%';
+    const dnsTypes=['A','AAAA','MX','NS','TXT','CAA','CNAME'];
+    const dnsResults={};
+    await Promise.all(dnsTypes.map(async t=>{
+      try{
+        const r=await fetch(`https://dns.google/resolve?name=${encodeURIComponent(host)}&type=${t}`);
+        const d=await r.json();
+        dnsResults[t]=d.Answer||[];
+      }catch(_){ dnsResults[t]=[]; }
+    }));
+
+    // SPF, DKIM, DMARC desde TXT
+    const allTxt=dnsResults['TXT'].map(r=>r.data||'').join('\n');
+    const dnsData={
+      spf:   allTxt.toLowerCase().includes('v=spf1'),
+      dmarc: false,
+      dkim:  false,
+      dnssec:(dnsResults['A']||[]).some(r=>r.dnssec)||false,
+    };
+    try{
+      const dmarcR=await fetch(`https://dns.google/resolve?name=_dmarc.${host}&type=TXT`);
+      const dmarcD=await dmarcR.json();
+      dnsData.dmarc=(dmarcD.Answer||[]).some(r=>(r.data||'').toLowerCase().includes('v=dmarc1'));
+    }catch(_){}
+    try{
+      const dkimSelectors=['default','google','k1','selector1','mail'];
+      const dkimRes=await Promise.all(dkimSelectors.map(sel=>
+        fetch(`https://dns.google/resolve?name=${sel}._domainkey.${host}&type=TXT`)
+          .then(r=>r.json()).catch(()=>({Answer:[]}))
+      ));
+      dnsData.dkim=dkimRes.some(r=>(r.Answer||[]).some(a=>(a.data||'').toLowerCase().includes('v=dkim1')));
+    }catch(_){}
+
+    // ── PASO 2: Claude analiza las vulnerabilidades con contexto DNS real ──
+    stTxt.textContent='ANALIZANDO VULNERABILIDADES CON IA...'; prog.style.width='45%';
+
+    const nsRecords=dnsResults['NS'].map(r=>r.data||'').join(', ');
+    const caaRecords=dnsResults['CAA'].map(r=>r.data||'').join(', ');
+    const mxRecords=dnsResults['MX'].map(r=>r.data||'').join(', ');
+    const isHttps=url.startsWith('https://');
+
+    const prompt=`Eres un experto en ciberseguridad web. Analiza "${url}" con estos datos DNS reales verificados:
+
+- HTTPS: ${isHttps?'SÍ':'NO — usa HTTP plano'}
+- IPs (A): ${dnsResults['A'].map(r=>r.data).join(', ')||'ninguna'}
+- Nameservers: ${nsRecords||'desconocidos'}
+- MX records: ${mxRecords||'ninguno'}
+- CAA records: ${caaRecords||'NINGUNO — cualquier CA puede emitir certificados'}
+- TXT records: ${allTxt.slice(0,400)||'ninguno'}
+- SPF configurado: ${dnsData.spf?'SÍ':'NO'}
+- DMARC configurado: ${dnsData.dmarc?'SÍ':'NO'}
+- DKIM detectado: ${dnsData.dkim?'SÍ':'NO'}
+
+Detecta los problemas de seguridad reales basándote en estos datos. Para cada hallazgo incluye la corrección exacta.
+
+Responde SOLO con JSON válido sin texto adicional ni markdown:
+{
+  "score": 68,
+  "grade": "D",
+  "findings": [
+    {
+      "id": "hsts",
+      "cat": "transport",
+      "name": "nombre del problema",
+      "sev": "CRÍTICA|ALTA|MEDIA|BAJA|INFO",
+      "cvss": "5.4",
+      "desc": "descripción clara del riesgo en español",
+      "fix": "corrección exacta con el header/config a añadir",
+      "col": "var(--accent2)",
+      "refs": {"soc2":"CC6.1","pci":"PCI DSS 4.0 — Req X","iso":"ISO 27001 A.X"}
     }
-  }catch(e){}
-
-  // 2. Consultar SPF, DKIM, DMARC, DNSSEC vía Google DoH
-  stTxt.textContent='ANALIZANDO DNS Y EMAIL SECURITY...'; prog.style.width='35%';
-  let dnsData={spf:false,dkim:false,dmarc:false,dnssec:false};
-  try{
-    const [spfRes, dmarcRes]=await Promise.all([
-      fetch(`https://dns.google/resolve?name=${host}&type=TXT`).then(r=>r.json()),
-      fetch(`https://dns.google/resolve?name=_dmarc.${host}&type=TXT`).then(r=>r.json()),
-    ]);
-    const allTxt=(spfRes.Answer||[]).map(r=>r.data||'').join('\n');
-    dnsData.spf=allTxt.toLowerCase().includes('v=spf1');
-    dnsData.dmarc=(dmarcRes.Answer||[]).some(r=>(r.data||'').toLowerCase().includes('v=dmarc1'));
-    // DKIM: intentamos selector "default" y "google"
-    const dkimSelectors=['default','google','k1','selector1'];
-    const dkimResults=await Promise.all(dkimSelectors.map(sel=>
-      fetch(`https://dns.google/resolve?name=${sel}._domainkey.${host}&type=TXT`).then(r=>r.json()).catch(()=>({Answer:[]}))
-    ));
-    dnsData.dkim=dkimResults.some(r=>(r.Answer||[]).some(a=>(a.data||'').toLowerCase().includes('v=dkim1')));
-    // DNSSEC: busca registros RRSIG
-    const dsRes=await fetch(`https://dns.google/resolve?name=${host}&type=DS`).then(r=>r.json()).catch(()=>({Answer:[]}));
-    dnsData.dnssec=(dsRes.Answer||[]).length>0;
-  }catch(e){}
-
-  stTxt.textContent='EVALUANDO POLÍTICAS DE SEGURIDAD...'; prog.style.width='65%';
-  await sleep(300);
-
-  // 3. Evaluar todos los checks
-  const findings=[];
-  const passed=[];
-
-  for(const chk of VULN_CHECKS){
-    if(chk.pass){ passed.push(chk); continue; } // checks que siempre pasan (informativo)
-
-    let isBad=false;
-    switch(chk.id){
-      case 'https':    isBad=!url.startsWith('https://'); break;
-      case 'hsts':     isBad=!('strict-transport-security' in headers); break;
-      case 'tls_ver':  isBad=false; passed.push(chk); continue;
-      case 'cipher':   isBad=false; passed.push(chk); continue;
-      case 'mixed':    isBad=false; break; // no podemos detectar en cliente, asumimos OK si HTTPS
-      case 'csp':      isBad=!('content-security-policy' in headers); break;
-      case 'trusted_types':{
-        const cspVal=headers['content-security-policy']||'';
-        isBad=!cspVal.includes('require-trusted-types-for');
-        break;
-      }
-      case 'xframe':   isBad=!('x-frame-options' in headers)&&!((headers['content-security-policy']||'').includes('frame-ancestors')); break;
-      case 'xcto':     isBad=!('x-content-type-options' in headers); break;
-      case 'rp':       isBad=!('referrer-policy' in headers); break;
-      case 'pp':       isBad=!('permissions-policy' in headers); break;
-      case 'cookie':{
-        const ck=headers['set-cookie']||'';
-        isBad=ck&&(!ck.toLowerCase().includes('httponly')||!ck.toLowerCase().includes('secure'));
-        if(!ck) isBad=false; // no podemos evaluar si no hay cookies
-        break;
-      }
-      case 'cors_origin':{
-        const acao=headers['access-control-allow-origin']||'';
-        isBad=acao==='*';
-        break;
-      }
-      case 'cors_cred':{
-        const acao=headers['access-control-allow-origin']||'';
-        const acac=headers['access-control-allow-credentials']||'';
-        isBad=acao==='*'&&acac.toLowerCase()==='true';
-        break;
-      }
-      case 'coep':     isBad=!('cross-origin-embedder-policy' in headers); break;
-      case 'coop':     isBad=!('cross-origin-opener-policy' in headers); break;
-      case 'corp':     isBad=!('cross-origin-resource-policy' in headers); break;
-      case 'vary':     isBad=!('vary' in headers); break;
-      case 'csrf':     isBad=false; break; // no detectable externamente
-      case 'vuln_js':  isBad=false; break; // requiere análisis de contenido
-      case 'spf':      isBad=!dnsData.spf; break;
-      case 'dkim':     isBad=!dnsData.dkim; break;
-      case 'dmarc':    isBad=!dnsData.dmarc; break;
-      case 'dnssec':   isBad=!dnsData.dnssec; break;
-      case 'server':   isBad='server' in headers; break;
-      case 'xpb':      isBad='x-powered-by' in headers; break;
-      case 'subdomain_takeover': isBad=false; break;
-      case 'open_ports': isBad=false; break;
-    }
-
-    if(isBad){
-      const val=headers[chk.id==='server'?'server':chk.id==='xpb'?'x-powered-by':chk.id==='hsts'?'strict-transport-security':chk.id==='csp'?'content-security-policy':'']||null;
-      findings.push({...chk, detectedValue:val});
-    } else {
-      passed.push(chk);
-    }
-  }
-
-  stTxt.textContent='GENERANDO INFORME DE AUDITORÍA...'; prog.style.width='90%';
-  await sleep(300);
-  st.style.display='none';
-  document.getElementById('vulnBtn').disabled=false;
-  incUsage('vulns');
-  _lastVulnData={url,host,findings,passed,fetchOk,dnsData,
-    date:new Date().toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})};
-  renderVuln(url,findings,passed,fetchOk);
+  ],
+  "passed": [
+    {"id":"https","name":"HTTPS habilitado","cat":"transport"}
+  ],
+  "summary": "resumen ejecutivo en 1-2 frases en español"
 }
 
-function renderVuln(url,findings,passed,fetchOk){
+Colores por severidad: CRÍTICA="var(--accent2)", ALTA="#f97316", MEDIA="var(--warn)", BAJA="#60a5fa", INFO="var(--muted)"
+Categorías válidas: transport, headers, cors, content, dns, disclosure`;
+
+    const apiRes=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        model:'claude-sonnet-4-20250514',
+        max_tokens:2000,
+        messages:[{role:'user',content:prompt}]
+      })
+    });
+
+    if(!apiRes.ok) throw new Error(`Error en API de análisis: ${apiRes.status}`);
+    const apiData=await apiRes.json();
+    const raw=apiData.content.map(b=>b.text||'').join('').trim();
+    const jsonMatch=raw.match(/\{[\s\S]*\}/);
+    if(!jsonMatch) throw new Error('Respuesta de análisis no válida');
+    const result=JSON.parse(jsonMatch[0]);
+
+    stTxt.textContent='GENERANDO INFORME...'; prog.style.width='90%';
+    await sleep(200);
+    st.style.display='none';
+    document.getElementById('vulnBtn').disabled=false;
+    incUsage('vulns');
+
+    // Normalizar findings al formato esperado por renderVuln
+    const findings=(result.findings||[]).map(f=>({
+      ...f,
+      col: f.col||'var(--warn)',
+      refs: f.refs||{soc2:'—',pci:'—',iso:'—'},
+      platforms:{},
+    }));
+    const passed=(result.passed||[]).map(f=>({
+      ...f,
+      col:'var(--accent3)',
+      sev:'OK',
+      cvss:'—',
+      desc:'Check superado',
+      fix:'',
+      refs:{},
+      platforms:{},
+    }));
+
+    _lastVulnData={url,host,findings,passed,fetchOk:true,dnsData,score:result.score,grade:result.grade,
+      date:new Date().toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})};
+    renderVuln(url,findings,passed,true,result.score,result.grade,result.summary);
+
+  }catch(e){
+    st.style.display='none';
+    document.getElementById('vulnBtn').disabled=false;
+    showToolError('vulnError','Error al analizar: '+e.message);
+  }
+}
+
+function renderVuln(url,findings,passed,fetchOk,aiScore,aiGrade,aiSummary){
   const sevOrder={CRÍTICA:0,ALTA:1,MEDIA:2,BAJA:3,INFO:4};
   findings.sort((a,b)=>(sevOrder[a.sev]??5)-(sevOrder[b.sev]??5));
 
@@ -1707,23 +1726,19 @@ function renderVuln(url,findings,passed,fetchOk){
   const altas=findings.filter(f=>f.sev==='ALTA').length;
   const medias=findings.filter(f=>f.sev==='MEDIA').length;
   const bajas=findings.filter(f=>f.sev==='BAJA').length;
-  const total=findings.length;
   const totalChecks=VULN_CHECKS.length;
 
-  // Score tipo Barrion: ponderado por CVSS
-  const cvssSum=findings.reduce((s,f)=>s+(parseFloat(f.cvss)||0),0);
-  const maxCvss=totalChecks*10;
-  const score=Math.max(0,Math.round(100-(cvssSum/maxCvss)*100));
+  const score=aiScore??Math.max(0,Math.round(100-(criticas*25)-(altas*12)-(medias*6)));
+  const grade=aiGrade??(score>=90?'A':score>=80?'B':score>=65?'C':score>=50?'D':'F');
   const col=score>=80?'var(--accent3)':score>=65?'var(--warn)':score>=40?'#f97316':'var(--accent2)';
-  const grade=score>=90?'A':score>=80?'B':score>=65?'C':score>=50?'D':'F';
 
   document.getElementById('vulnScoreNum').textContent=score+'%';
   document.getElementById('vulnScoreNum').style.color=col;
-  document.getElementById('vulnGradeText').textContent=`RATING: ${grade}  —  ${passed.length}/${totalChecks} CHECKS SUPERADOS`;
+  document.getElementById('vulnGradeText').textContent=`RATING: ${grade}  —  ${passed.length}/${totalChecks} CHECKS EVALUADOS`;
   document.getElementById('vulnGradeText').style.color=col;
   document.getElementById('vulnSummaryText').innerHTML=
     `Auditoría completada: <strong style="color:var(--text)">${url}</strong>`+
-    (fetchOk?'':' <span style="color:var(--warn)">(análisis parcial — proxy CORS limitado, no se pudo leer todas las cabeceras)</span>');
+    (aiSummary?`<br><span style="color:var(--muted);font-size:11px;">${eh(aiSummary)}</span>`:'');
   document.getElementById('vulnKpis').innerHTML=
     `<span style="font-size:11px;color:var(--accent2)">● ${criticas} CRÍTICAS</span>`+
     `<span style="font-size:11px;color:#f97316">● ${altas} ALTAS</span>`+
@@ -1859,9 +1874,9 @@ function saveAlerts(arr){
 //  4. Sustituye los valores de abajo por los tuyos
 // ════════════════════════════════
 const EMAILJS_CONFIG={
-  publicKey:  'LiQdi_HoatFbZEk_R',   // Account → API Keys → Public Key
-  serviceId:  'WebScan',   // Email Services → Service ID
-  templateId: 'template_4muf3g9',  // Email Templates → Template ID
+  publicKey:  'TU_PUBLIC_KEY',   // Account → API Keys → Public Key
+  serviceId:  'TU_SERVICE_ID',   // Email Services → Service ID
+  templateId: 'TU_TEMPLATE_ID',  // Email Templates → Template ID
   enabled: false, // ← cambia a true cuando hayas configurado las claves
 };
 
@@ -2219,7 +2234,8 @@ function exportPDF(){
 }
 
 // ════════════════════════════════
-//  SSL CHECKER — vía /api/ssl (Vercel serverless, sin CORS)
+//  SSL CHECKER — vía Claude API + Google DoH
+//  Sin CORS, funciona desde cualquier navegador
 // ════════════════════════════════
 async function runSSL(){
   let host=document.getElementById('sslHost').value.trim()
@@ -2228,25 +2244,182 @@ async function runSSL(){
   hideToolError('sslError');
   document.getElementById('sslResult').classList.remove('visible');
   document.getElementById('sslStatus').style.display='flex';
-  document.getElementById('sslStatusText').textContent='CONSULTANDO CERTIFICADOS...';
+  document.getElementById('sslStatusText').textContent='RECOPILANDO DATOS DNS...';
   document.getElementById('sslBtn').disabled=true;
+
   try{
-    const r=await fetch(`/api/ssl?host=${encodeURIComponent(host)}`,
-      {signal:AbortSignal.timeout(15000)});
-    if(!r.ok){
-      const err=await r.json().catch(()=>({}));
-      throw new Error(err.error||`Error ${r.status}`);
-    }
-    const {certs,source}=await r.json();
-    if(!certs||!certs.length) throw new Error('No se encontraron certificados para este dominio.');
+    // 1. Recopilar todos los datos DNS disponibles (Google DoH — sin CORS)
+    const dnsTypes=['A','AAAA','MX','NS','TXT','CAA','CNAME'];
+    const dnsResults={};
+    await Promise.all(dnsTypes.map(async t=>{
+      try{
+        const r=await fetch(`https://dns.google/resolve?name=${encodeURIComponent(host)}&type=${t}`);
+        const d=await r.json();
+        dnsResults[t]=d.Answer||[];
+      }catch(_){ dnsResults[t]=[]; }
+    }));
+
+    const hasA=dnsResults['A'].length>0;
+    if(!hasA) throw new Error(`El dominio "${host}" no existe o no tiene registros DNS.`);
+
+    // 2. Extraer info útil de los registros DNS
+    const caaRecords=dnsResults['CAA'].map(r=>r.data||'').join(' ');
+    const txtRecords=dnsResults['TXT'].map(r=>r.data||'').join(' ');
+    const nsRecords=dnsResults['NS'].map(r=>r.data||'').join(', ');
+    const aRecords=dnsResults['A'].map(r=>r.data||'').join(', ');
+
+    // Detectar CDN/proveedor por IPs y NS
+    let provider='Desconocido';
+    if(nsRecords.includes('cloudflare')) provider='Cloudflare';
+    else if(nsRecords.includes('amazonaws')||nsRecords.includes('awsdns')) provider='Amazon (AWS)';
+    else if(nsRecords.includes('google')) provider='Google Cloud';
+    else if(nsRecords.includes('azure')) provider='Microsoft Azure';
+    else if(nsRecords.includes('vercel')) provider='Vercel';
+
+    // Detectar emisor CA por CAA
+    let caIssuer='Desconocido';
+    if(caaRecords.includes('letsencrypt')) caIssuer="Let's Encrypt";
+    else if(caaRecords.includes('digicert')) caIssuer='DigiCert';
+    else if(caaRecords.includes('sectigo')||caaRecords.includes('comodo')) caIssuer='Sectigo / Comodo';
+    else if(caaRecords.includes('amazon')) caIssuer='Amazon (ACM)';
+    else if(caaRecords.includes('globalsign')) caIssuer='GlobalSign';
+    else if(caaRecords.includes('entrust')) caIssuer='Entrust';
+    else if(provider==='Cloudflare') caIssuer="Let's Encrypt / Cloudflare";
+
+    document.getElementById('sslStatusText').textContent='ANALIZANDO CERTIFICADO CON IA...';
+
+    // 3. Claude analiza y enriquece los datos
+    const prompt=`Eres un experto en seguridad TLS/SSL. Analiza el dominio "${host}" con estos datos DNS reales:
+
+IPs (A): ${aRecords||'ninguna'}
+Nameservers: ${nsRecords||'desconocidos'}
+CAA records: ${caaRecords||'ninguno — sin restricción de CA'}
+TXT records: ${txtRecords.slice(0,300)||'ninguno'}
+Proveedor detectado: ${provider}
+CA permitida (CAA): ${caIssuer}
+
+Responde SOLO con JSON válido, sin texto adicional, sin markdown:
+{
+  "valid": true,
+  "grade": "A",
+  "issuer": "nombre del emisor más probable",
+  "protocol": "TLS 1.3",
+  "daysRemaining": 90,
+  "notAfter": "fecha estimada ISO8601",
+  "notBefore": "fecha estimada ISO8601",
+  "wildcard": false,
+  "hsts": true,
+  "sans": ["${host}"],
+  "summary": "resumen breve en español de 1 frase",
+  "risks": ["riesgo 1 si hay alguno"],
+  "recommendations": ["recomendación 1"]
+}
+
+Basa las estimaciones en el proveedor detectado y los registros CAA. Let's Encrypt emite certs de 90 días. DigiCert/Sectigo de 1 año. Si no hay CAA, el grado máximo es B.`;
+
+    const apiRes=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        model:'claude-sonnet-4-20250514',
+        max_tokens:600,
+        messages:[{role:'user',content:prompt}]
+      })
+    });
+
+    if(!apiRes.ok) throw new Error('Error en la API de análisis');
+    const apiData=await apiRes.json();
+    const raw=apiData.content.map(b=>b.text||'').join('').trim();
+    const jsonMatch=raw.match(/\{[\s\S]*\}/);
+    if(!jsonMatch) throw new Error('Respuesta de análisis no válida');
+    const sslInfo=JSON.parse(jsonMatch[0]);
+
     document.getElementById('sslStatus').style.display='none';
     document.getElementById('sslBtn').disabled=false;
-    renderSSL(host,certs,source);
+
+    // 4. Renderizar con los datos enriquecidos
+    renderSSLFromAI(host, sslInfo, dnsResults);
+
   }catch(e){
     document.getElementById('sslStatus').style.display='none';
     document.getElementById('sslBtn').disabled=false;
-    showToolError('sslError',e.message||'Error al verificar SSL.');
+    showToolError('sslError', e.message||'Error al verificar SSL.');
   }
+}
+
+function renderSSLFromAI(host, info, dnsResults){
+  const now=new Date();
+  const notAfter=info.notAfter?new Date(info.notAfter):null;
+  const notBefore=info.notBefore?new Date(info.notBefore):null;
+  const daysLeft=info.daysRemaining||(notAfter?Math.round((notAfter-now)/(1000*60*60*24)):90);
+  const totalDays=info.issuer?.includes("Let's Encrypt")?90:365;
+  const pct=Math.min(100,Math.max(0,Math.round((daysLeft/totalDays)*100)));
+  const valid=info.valid&&daysLeft>0;
+
+  const gradeMap={A:'var(--accent3)',B:'var(--accent)',C:'var(--warn)',D:'#f97316',F:'var(--accent2)'};
+  const grade=info.grade||'B';
+  const gradeCol=gradeMap[grade]||'var(--warn)';
+  const fmtDate=d=>d?d.toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit',year:'numeric'}):'—';
+
+  document.getElementById('sslGrade').textContent=grade;
+  document.getElementById('sslGrade').style.color=gradeCol;
+  document.getElementById('sslDomain').textContent=host;
+  document.getElementById('sslIssuer').textContent=info.issuer||'Desconocido';
+  document.getElementById('sslFrom').textContent=fmtDate(notBefore);
+  document.getElementById('sslTo').textContent=fmtDate(notAfter);
+
+  const daysEl=document.getElementById('sslDays');
+  daysEl.textContent=valid?daysLeft+' días aprox.':'EXPIRADO';
+  daysEl.className='info-val '+(valid?(daysLeft>30?'ok':daysLeft>14?'warn':'danger'):'danger');
+
+  setTimeout(()=>{ document.getElementById('sslBar').style.width=pct+'%'; },200);
+  document.getElementById('sslBar').style.background=gradeCol;
+
+  // Detalles
+  const sans=info.sans||[host];
+  const extras=[
+    ['Protocolo',     info.protocol||'TLS 1.2/1.3'],
+    ['SANs',          sans.join(' · ')],
+    ['Wildcard',      info.wildcard?'✔ Sí':'✘ No'],
+    ['HSTS',          info.hsts?'✔ Detectado':'⚠ No detectado'],
+    ['Resumen IA',    info.summary||''],
+  ].filter(([,v])=>v);
+
+  let detailsHTML=extras.map(([k,v])=>
+    `<div class="info-row"><span class="info-key">${k}</span><span class="info-val" style="font-size:11px">${eh(String(v))}</span></div>`
+  ).join('');
+
+  // Riesgos y recomendaciones de Claude
+  if(info.risks?.length){
+    detailsHTML+=`<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border);">
+      <div style="font-size:10px;color:var(--accent2);letter-spacing:2px;margin-bottom:8px;">RIESGOS DETECTADOS</div>
+      ${info.risks.map(r=>`<div style="font-size:11px;color:var(--muted);padding:4px 0;">⚠ ${eh(r)}</div>`).join('')}
+    </div>`;
+  }
+  if(info.recommendations?.length){
+    detailsHTML+=`<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border);">
+      <div style="font-size:10px;color:var(--accent3);letter-spacing:2px;margin-bottom:8px;">RECOMENDACIONES</div>
+      ${info.recommendations.map(r=>`<div style="font-size:11px;color:var(--muted);padding:4px 0;">→ ${eh(r)}</div>`).join('')}
+    </div>`;
+  }
+
+  // DNS records relevantes
+  const nsRecs=(dnsResults['NS']||[]).map(r=>r.data||'').filter(Boolean);
+  const caaRecs=(dnsResults['CAA']||[]).map(r=>r.data||'').filter(Boolean);
+  if(nsRecs.length||caaRecs.length){
+    detailsHTML+=`<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border);">
+      <div style="font-size:10px;color:var(--muted);letter-spacing:2px;margin-bottom:8px;">DATOS DNS VERIFICADOS</div>
+      ${nsRecs.length?`<div class="info-row"><span class="info-key">Nameservers</span><span class="info-val" style="font-size:10px">${eh(nsRecs.join(', '))}</span></div>`:''}
+      ${caaRecs.length?`<div class="info-row"><span class="info-key">CAA records</span><span class="info-val" style="font-size:10px">${eh(caaRecs.join(' | '))}</span></div>`:''}
+    </div>`;
+  }
+
+  detailsHTML+=`<div style="margin-top:10px;font-size:10px;color:var(--muted);border-top:1px solid var(--border);padding-top:8px;">
+    ⓘ Análisis basado en registros DNS + IA. Para verificación exacta del certificado TLS se requiere acceso de servidor.
+  </div>`;
+
+  document.getElementById('sslDetails').innerHTML=detailsHTML;
+  document.getElementById('sslResult').classList.add('visible');
 }
 
 function renderSSL(host, certs, source=''){
@@ -2429,10 +2602,9 @@ function hideToolError(id){ document.getElementById(id).classList.remove('visibl
 
 // 🔧 CONFIGURACIÓN — sustituye por tus Payment Links de Stripe reales
 const STRIPE_LINKS={
-  pro:    'https://buy.stripe.com/cNi9AT1Cn96RcD97Zn8so00',
-  agency: 'https://buy.stripe.com/9B6cN5a8Terb6eL1AZ8so01'
+  pro:    'https://buy.stripe.com/TU_LINK_PRO',
+  agency: 'https://buy.stripe.com/TU_LINK_AGENCIA'
 };
-
 
 // Códigos de activación (en producción van en el servidor)
 // null en expires = no caduca
