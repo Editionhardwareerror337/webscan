@@ -1966,12 +1966,10 @@ function renderAlerts(){
 }
 
 // ════════════════════════════════
-//  PDF + CSV EXPORT
+//  PDF + CSV EXPORT — robusto
 // ════════════════════════════════
 function loadPdfPreview(){
-  const d=window._lastScanData || (()=>{
-    const h=getUserHistory(); return h.length?h[0]:null;
-  })();
+  const d=window._lastScanData||(()=>{ const h=getUserHistory(); return h.length?h[0]:null; })();
   if(!d){
     document.getElementById('pdfNoScan').style.display='block';
     document.getElementById('pdfPreviewWrap').style.display='none';
@@ -1980,242 +1978,299 @@ function loadPdfPreview(){
   document.getElementById('pdfNoScan').style.display='none';
   document.getElementById('pdfPreviewWrap').style.display='block';
   const col=d.score>=80?'var(--accent3)':d.score>=50?'var(--warn)':'var(--accent2)';
-  document.getElementById('pdfBadge').textContent=d.verdict;
-  document.getElementById('pdfUrl').textContent=d.url;
-  document.getElementById('pdfVerdict').textContent=d.verdict;
+  document.getElementById('pdfBadge').textContent=d.verdict||'—';
+  document.getElementById('pdfUrl').textContent=d.url||'—';
+  document.getElementById('pdfVerdict').textContent=d.verdict||'—';
   document.getElementById('pdfVerdict').style.color=col;
-  document.getElementById('pdfScore').textContent=d.score+' / 100';
+  document.getElementById('pdfScore').textContent=(d.score??'—')+' / 100';
   document.getElementById('pdfScore').style.color=col;
-  document.getElementById('pdfDate').textContent=d.date;
+  document.getElementById('pdfDate').textContent=d.date||'—';
   document.getElementById('pdfMal').textContent=d.malicious??'—';
   document.getElementById('pdfSusp').textContent=d.suspicious??'—';
-  document.getElementById('pdfClean').textContent=(d.harmless!==undefined&&d.undetected!==undefined)?d.harmless+d.undetected:'—';
+  document.getElementById('pdfClean').textContent=(d.harmless!=null&&d.undetected!=null)?d.harmless+d.undetected:'—';
   document.getElementById('pdfTotal').textContent=d.total??'—';
 }
 
+// Cargar jsPDF dinámicamente si no está disponible
+function loadJsPDF(){
+  return new Promise((resolve,reject)=>{
+    if(window.jspdf?.jsPDF){ resolve(window.jspdf.jsPDF); return; }
+    // Intentar desde window directamente (algunas versiones)
+    if(window.jsPDF){ resolve(window.jsPDF); return; }
+    // Cargar dinámicamente
+    const s=document.createElement('script');
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+    s.onload=()=>{
+      const cls=window.jspdf?.jsPDF||window.jsPDF;
+      if(cls) resolve(cls);
+      else reject(new Error('jsPDF no disponible tras cargar el script'));
+    };
+    s.onerror=()=>reject(new Error('No se pudo cargar jsPDF desde CDN'));
+    document.head.appendChild(s);
+  });
+}
+
 function exportCSV(){
-  const d=window._lastScanData || (getUserHistory()[0]||null);
-  if(!d){alert('Realiza un análisis primero.'); return;}
-  const h=getUserHistory();
+  const d=window._lastScanData||(getUserHistory()[0]||null);
+  if(!d){showToolError('pdfError','Realiza un análisis VirusTotal primero.'); return;}
+  hideToolError('pdfError');
+
   const standards=[];
-  if(document.getElementById('pdfSoc2').checked) standards.push('SOC 2 Type II');
-  if(document.getElementById('pdfPci').checked)  standards.push('PCI DSS v4.0');
-  if(document.getElementById('pdfIso').checked)  standards.push('ISO 27001:2022');
+  if(document.getElementById('pdfSoc2')?.checked) standards.push('SOC 2 Type II');
+  if(document.getElementById('pdfPci')?.checked)  standards.push('PCI DSS v4.0');
+  if(document.getElementById('pdfIso')?.checked)  standards.push('ISO 27001:2022');
 
   const rows=[
     ['WEBSCAN — INFORME DE AUDITORÍA DE SEGURIDAD'],
     ['Generado por','WebScan Security Platform'],
     ['Fecha de exportación',new Date().toLocaleString('es-ES')],
-    ['Estándares aplicados',standards.join(' | ')],
+    ['Estándares aplicados',standards.join(' | ')||'Ninguno seleccionado'],
     [],
-    ['── RESULTADO DEL ÚLTIMO SCAN ──'],
-    ['URL',d.url],['Veredicto',d.verdict],['Score',d.score+'/100'],
-    ['Fecha',d.date],['Motores maliciosos',d.malicious??'N/A'],
-    ['Motores sospechosos',d.suspicious??'N/A'],['Motores limpios',(d.harmless!==undefined?d.harmless+d.undetected:'N/A')],
-    ['Total motores',d.total??'N/A'],
+    ['── RESULTADO DEL ANÁLISIS ──'],
+    ['URL',d.url||''],
+    ['Veredicto',d.verdict||''],
+    ['Score',String(d.score??'')],
+    ['Fecha',d.date||''],
+    ['Motores maliciosos',String(d.malicious??'N/A')],
+    ['Motores sospechosos',String(d.suspicious??'N/A')],
+    ['Motores limpios',String(d.harmless!=null?d.harmless+(d.undetected||0):'N/A')],
+    ['Total motores',String(d.total??'N/A')],
   ];
 
-  if(document.getElementById('pdfOptVulns').checked && _lastVulnData?.findings?.length){
+  if(document.getElementById('pdfOptVulns')?.checked && _lastVulnData?.findings?.length){
     rows.push([],['── VULNERABILIDADES DETECTADAS ──'],
       ['Severidad','Nombre','Descripción','Corrección','SOC 2','PCI DSS','ISO 27001'],
-      ..._lastVulnData.findings.map(f=>[f.sev,f.name,f.desc,f.fix,f.refs.soc2||'—',f.refs.pci||'—',f.refs.iso||'—'])
+      ..._lastVulnData.findings.map(f=>[
+        f.sev||'',f.name||'',f.desc||'',f.fix||'',
+        f.refs?.soc2||'—',f.refs?.pci||'—',f.refs?.iso||'—'
+      ])
     );
   }
 
-  if(document.getElementById('pdfOptHistory').checked && h.length){
-    rows.push([],['── HISTORIAL DE ANÁLISIS ──'],['URL','Score','Veredicto','Fecha'],
-      ...h.map(e=>[e.url,e.score,e.verdict,e.date])
+  const h=getUserHistory();
+  if(document.getElementById('pdfOptHistory')?.checked && h.length){
+    rows.push([],['── HISTORIAL DE ANÁLISIS ──'],
+      ['URL','Score','Veredicto','Fecha'],
+      ...h.map(e=>[e.url||'',String(e.score||''),e.verdict||'',e.date||''])
     );
   }
 
-  // Compliance summary
-  rows.push([],['── EVALUACIÓN DE CUMPLIMIENTO ──']);
-  if(document.getElementById('pdfSoc2').checked){
-    const issues=_lastVulnData?.findings?.filter(f=>f.refs.soc2&&f.refs.soc2!=='—').length||0;
-    rows.push(['SOC 2 Type II',issues===0?'CONFORME':'NO CONFORME',issues+' issues']);
-  }
-  if(document.getElementById('pdfPci').checked){
-    const issues=_lastVulnData?.findings?.filter(f=>f.refs.pci&&f.refs.pci!=='—').length||0;
-    rows.push(['PCI DSS v4.0',issues===0?'CONFORME':'NO CONFORME',issues+' issues']);
-  }
-  if(document.getElementById('pdfIso').checked){
-    const issues=_lastVulnData?.findings?.filter(f=>f.refs.iso&&f.refs.iso!=='—').length||0;
-    rows.push(['ISO 27001:2022',issues===0?'CONFORME':'NO CONFORME',issues+' issues']);
+  if(standards.length){
+    rows.push([],['── EVALUACIÓN DE CUMPLIMIENTO ──']);
+    standards.forEach(std=>{
+      const key=std.includes('SOC')?'soc2':std.includes('PCI')?'pci':'iso';
+      const issues=(_lastVulnData?.findings||[]).filter(f=>f.refs?.[key]&&f.refs[key]!=='—').length;
+      rows.push([std, issues===0?'CONFORME':'NO CONFORME', issues+' issues detectados']);
+    });
   }
 
-  const csv=rows.map(r=>r.map(c=>'"'+String(c||'').replace(/"/g,'""')+'"').join(',')).join('\n');
-  const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'});
+  const csv='\uFEFF'+rows.map(r=>
+    r.map(c=>'"'+String(c||'').replace(/"/g,'""')+'"').join(',')
+  ).join('\n');
+
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
   const a=document.createElement('a');
   a.href=URL.createObjectURL(blob);
-  a.download=`webscan-auditoria-${new Date().toISOString().slice(0,10)}.csv`;
+  a.download='webscan-auditoria-'+new Date().toISOString().slice(0,10)+'.csv';
+  document.body.appendChild(a);
   a.click();
+  setTimeout(()=>{ document.body.removeChild(a); URL.revokeObjectURL(a.href); },200);
 }
 
-function exportPDF(){
-  const d=window._lastScanData || (getUserHistory()[0]||null);
-  if(!d){showToolError('pdfError','Realiza un análisis primero.'); return;}
+async function exportPDF(){
+  const d=window._lastScanData||(getUserHistory()[0]||null);
+  if(!d){showToolError('pdfError','Realiza un análisis VirusTotal primero.'); return;}
   hideToolError('pdfError');
+
   const st=document.getElementById('pdfStatus');
   st.style.display='block';
 
-  setTimeout(()=>{
-    try{
-      const {jsPDF}=window.jspdf;
-      const doc=new jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
-      const W=210, M=18, TW=W-M*2;
-      let y=0;
+  try{
+    const jsPDF=await loadJsPDF();
+    const doc=new jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
+    const W=210, M=16, TW=W-M*2;
+    let y=0;
 
-      const standards=[];
-      if(document.getElementById('pdfSoc2').checked) standards.push('SOC 2 Type II');
-      if(document.getElementById('pdfPci').checked)  standards.push('PCI DSS v4.0');
-      if(document.getElementById('pdfIso').checked)  standards.push('ISO 27001:2022');
+    const standards=[];
+    if(document.getElementById('pdfSoc2')?.checked) standards.push('SOC 2 Type II');
+    if(document.getElementById('pdfPci')?.checked)  standards.push('PCI DSS v4.0');
+    if(document.getElementById('pdfIso')?.checked)  standards.push('ISO 27001:2022');
 
-      // ── PORTADA ──
+    const col=d.score>=80?[0,255,157]:d.score>=50?[255,184,0]:[255,61,113];
+
+    // Función auxiliar para nueva página
+    function newPage(){
+      doc.addPage();
       doc.setFillColor(5,10,14); doc.rect(0,0,W,297,'F');
-      doc.setFillColor(0,229,255); doc.rect(0,0,W,2,'F');
-      doc.setTextColor(0,229,255); doc.setFontSize(28); doc.setFont('helvetica','bold');
-      doc.text('WEBSCAN',M,32);
-      doc.setTextColor(200,230,245); doc.setFontSize(13); doc.setFont('helvetica','normal');
-      doc.text('INFORME DE AUDITORÍA DE SEGURIDAD WEB',M,42);
-      doc.setFontSize(9); doc.setTextColor(74,122,150);
-      doc.text(standards.length?'Estándares: '+standards.join(' · '):'Sin estándares seleccionados',M,50);
-      doc.setDrawColor(15,42,58); doc.line(M,56,W-M,56);
+      y=20;
+    }
+    function checkY(needed=20){
+      if(y+needed>278) newPage();
+    }
 
-      // Meta
-      const col=d.score>=80?[0,255,157]:d.score>=50?[255,184,0]:[255,61,113];
-      doc.setFontSize(10); doc.setTextColor(74,122,150); y=66;
-      const meta=[
-        ['URL analizada',d.url],['Veredicto',d.verdict],
-        ['Score de seguridad',d.score+' / 100'],['Fecha del análisis',d.date],
-        ['Motores maliciosos',String(d.malicious??'N/A')],['Motores sospechosos',String(d.suspicious??'N/A')],
-        ['Motores limpios',String(d.harmless!==undefined?d.harmless+d.undetected:'N/A')],
-        ['Total motores',String(d.total??'N/A')],
-      ];
-      meta.forEach(([k,v])=>{
-        doc.setTextColor(74,122,150); doc.setFont('helvetica','normal'); doc.setFontSize(9);
-        doc.text(k,M,y);
-        doc.setTextColor(200,230,245); doc.setFont('helvetica','bold');
-        const isVerdict=k==='Veredicto'||k==='Score de seguridad';
-        if(isVerdict) doc.setTextColor(...col);
-        const lines=doc.splitTextToSize(v,TW-60);
-        doc.text(lines,M+62,y);
-        y+=6*lines.length;
-      });
+    // ── PORTADA ──
+    doc.setFillColor(5,10,14); doc.rect(0,0,W,297,'F');
+    doc.setFillColor(0,229,255); doc.rect(0,0,W,2,'F');
+    doc.setFillColor(0,229,255); doc.rect(0,295,W,2,'F');
 
-      // Score circle (simple)
-      y+=4; doc.setDrawColor(15,42,58); doc.setLineWidth(3);
-      doc.circle(W-M-18,80,16);
-      doc.setDrawColor(...col); doc.setLineWidth(3);
-      doc.setTextColor(...col); doc.setFontSize(16); doc.setFont('helvetica','bold');
-      doc.text(String(d.score),W-M-18,78,{align:'center'});
-      doc.setFontSize(7); doc.setTextColor(74,122,150); doc.setFont('helvetica','normal');
-      doc.text('/100',W-M-18,84,{align:'center'});
+    // Logo
+    doc.setTextColor(0,229,255); doc.setFontSize(32); doc.setFont('helvetica','bold');
+    doc.text('WEBSCAN',M,38);
+    doc.setTextColor(200,230,245); doc.setFontSize(11); doc.setFont('helvetica','normal');
+    doc.text('INFORME DE AUDITORÍA DE SEGURIDAD WEB',M,47);
+    doc.setFontSize(8); doc.setTextColor(74,122,150);
+    doc.text(standards.length?'Estándares: '+standards.join(' · '):'Sin estándares seleccionados',M,54);
+    doc.setDrawColor(15,42,58); doc.setLineWidth(0.5); doc.line(M,58,W-M,58);
 
-      // ── VULNERABILIDADES ──
-      if(document.getElementById('pdfOptVulns').checked && _lastVulnData?.findings?.length){
-        y+=10;
-        doc.setFillColor(15,42,58); doc.rect(M,y,TW,6,'F');
-        doc.setTextColor(255,61,113); doc.setFontSize(9); doc.setFont('helvetica','bold');
-        doc.text('VULNERABILIDADES DETECTADAS ('+_lastVulnData.findings.length+')',M+2,y+4.2);
-        y+=10;
-        _lastVulnData.findings.forEach(f=>{
-          if(y>265){ doc.addPage(); doc.setFillColor(5,10,14); doc.rect(0,0,W,297,'F'); y=20; }
-          const sevCol=f.sev==='CRÍTICA'?[255,61,113]:f.sev==='ALTA'?[249,115,22]:f.sev==='MEDIA'?[255,184,0]:[96,165,250];
-          doc.setFillColor(...sevCol); doc.rect(M,y,2,10,'F');
-          doc.setTextColor(...sevCol); doc.setFontSize(7); doc.setFont('helvetica','bold');
-          doc.text('['+f.sev+']',M+4,y+4);
-          doc.setTextColor(200,230,245); doc.setFontSize(8); doc.setFont('helvetica','bold');
-          doc.text(f.name,M+22,y+4);
-          doc.setTextColor(74,122,150); doc.setFontSize(7.5); doc.setFont('helvetica','normal');
-          const descLines=doc.splitTextToSize(f.desc,TW-4);
-          doc.text(descLines,M+4,y+9);
-          y+=8+descLines.length*4;
-          doc.setTextColor(0,255,157); doc.setFontSize(7);
+    // Score circle
+    doc.setDrawColor(15,42,58); doc.setLineWidth(4); doc.circle(W-M-20,42,16);
+    doc.setTextColor(...col); doc.setFontSize(18); doc.setFont('helvetica','bold');
+    doc.text(String(d.score??'—'),W-M-20,40,{align:'center'});
+    doc.setFontSize(7); doc.setTextColor(74,122,150); doc.setFont('helvetica','normal');
+    doc.text('/100',W-M-20,46,{align:'center'});
+    doc.text('SCORE',W-M-20,51,{align:'center'});
+
+    // Metadata
+    y=68;
+    const meta=[
+      ['URL analizada', String(d.url||'—')],
+      ['Veredicto',     String(d.verdict||'—')],
+      ['Score',         String(d.score??'—')+' / 100'],
+      ['Fecha análisis',String(d.date||'—')],
+      ['Motores maliciosos', String(d.malicious??'N/A')],
+      ['Motores sospechosos',String(d.suspicious??'N/A')],
+      ['Motores limpios',    String(d.harmless!=null?d.harmless+(d.undetected||0):'N/A')],
+      ['Total motores',      String(d.total??'N/A')],
+    ];
+    meta.forEach(([k,v])=>{
+      checkY(7);
+      doc.setTextColor(74,122,150); doc.setFontSize(8); doc.setFont('helvetica','normal');
+      doc.text(k,M,y);
+      const isVerdict=k==='Veredicto'||k==='Score';
+      doc.setTextColor(isVerdict?col[0]:200,isVerdict?col[1]:230,isVerdict?col[2]:245);
+      doc.setFont('helvetica','bold'); doc.setFontSize(8);
+      const lines=doc.splitTextToSize(v,TW-52);
+      doc.text(lines,M+52,y);
+      y+=5.5*lines.length;
+    });
+
+    // ── VULNERABILIDADES ──
+    if(document.getElementById('pdfOptVulns')?.checked && _lastVulnData?.findings?.length){
+      checkY(16);
+      y+=6;
+      doc.setFillColor(15,42,58); doc.rect(M,y,TW,7,'F');
+      doc.setTextColor(255,61,113); doc.setFontSize(9); doc.setFont('helvetica','bold');
+      doc.text('VULNERABILIDADES DETECTADAS ('+_lastVulnData.findings.length+')',M+3,y+5);
+      y+=11;
+
+      _lastVulnData.findings.forEach(f=>{
+        checkY(18);
+        const sevCol=f.sev==='CRÍTICA'?[255,61,113]:f.sev==='ALTA'?[249,115,22]:f.sev==='MEDIA'?[255,184,0]:[96,165,250];
+        doc.setFillColor(...sevCol); doc.rect(M,y,2,12,'F');
+        doc.setTextColor(...sevCol); doc.setFontSize(7); doc.setFont('helvetica','bold');
+        doc.text('['+f.sev+']',M+4,y+4.5);
+        doc.setTextColor(200,230,245); doc.setFontSize(8);
+        const nameLines=doc.splitTextToSize(f.name||'',TW-26);
+        doc.text(nameLines,M+26,y+4.5);
+        y+=4.5+nameLines.length*3.5;
+        doc.setTextColor(74,122,150); doc.setFontSize(7); doc.setFont('helvetica','normal');
+        const descLines=doc.splitTextToSize(f.desc||'',TW-4);
+        doc.text(descLines,M+4,y);
+        y+=descLines.length*3.5+1;
+        if(f.fix){
+          doc.setTextColor(0,200,120); doc.setFontSize(6.5);
           const fixLines=doc.splitTextToSize('→ '+f.fix,TW-4);
           doc.text(fixLines,M+4,y);
-          y+=fixLines.length*4+3;
-          const refs=Object.entries(f.refs).filter(([,v])=>v&&v!=='—').map(([k,v])=>k.toUpperCase()+': '+v).join('  ');
-          if(refs){ doc.setTextColor(42,72,96); doc.setFontSize(6.5); doc.text(refs,M+4,y); y+=4; }
-          y+=3; doc.setDrawColor(15,42,58); doc.line(M,y,W-M,y); y+=3;
-        });
-      }
-
-      // ── CUMPLIMIENTO ──
-      if(standards.length){
-        if(y>250){ doc.addPage(); doc.setFillColor(5,10,14); doc.rect(0,0,W,297,'F'); y=20; }
-        y+=6;
-        doc.setFillColor(15,42,58); doc.rect(M,y,TW,6,'F');
-        doc.setTextColor(0,229,255); doc.setFontSize(9); doc.setFont('helvetica','bold');
-        doc.text('EVALUACIÓN DE CUMPLIMIENTO NORMATIVO',M+2,y+4.2);
-        y+=10;
-        standards.forEach(std=>{
-          const key=std.includes('SOC')?'soc2':std.includes('PCI')?'pci':'iso';
-          const issues=_lastVulnData?.findings?.filter(f=>f.refs[key]&&f.refs[key]!=='—')||[];
-          const conforme=issues.length===0;
-          doc.setFillColor(conforme?0:255,conforme?255:61,conforme?157:113,30);
-          doc.rect(M,y,TW,8,'F');
-          doc.setTextColor(conforme?0:255,conforme?255:61,conforme?157:113);
-          doc.setFontSize(8); doc.setFont('helvetica','bold');
-          doc.text(std,M+3,y+5.5);
-          doc.text(conforme?'✓ CONFORME':'✗ NO CONFORME',M+TW-3,y+5.5,{align:'right'});
-          y+=10;
-          if(!conforme){
-            doc.setTextColor(74,122,150); doc.setFontSize(7); doc.setFont('helvetica','normal');
-            issues.slice(0,4).forEach(f=>{ doc.text('• '+f.name,M+5,y); y+=4; });
-            if(issues.length>4){ doc.text('• … y '+(issues.length-4)+' más',M+5,y); y+=4; }
-          }
-          y+=2;
-        });
-      }
-
-      // ── HISTORIAL ──
-      if(document.getElementById('pdfOptHistory').checked){
-        const h=getUserHistory();
-        if(h.length){
-          if(y>240){ doc.addPage(); doc.setFillColor(5,10,14); doc.rect(0,0,W,297,'F'); y=20; }
-          y+=6;
-          doc.setFillColor(15,42,58); doc.rect(M,y,TW,6,'F');
-          doc.setTextColor(0,229,255); doc.setFontSize(9); doc.setFont('helvetica','bold');
-          doc.text('HISTORIAL DE ANÁLISIS (últimos '+Math.min(h.length,20)+')',M+2,y+4.2);
-          y+=10;
-          const cols=[TW*0.5,22,26,TW*0.22];
-          ['URL','SCORE','VEREDICTO','FECHA'].forEach((c,i)=>{
-            doc.setTextColor(74,122,150); doc.setFontSize(7); doc.setFont('helvetica','bold');
-            doc.text(c,M+(i===0?0:cols.slice(0,i).reduce((a,b)=>a+b,0)),y);
-          });
-          y+=5; doc.setDrawColor(15,42,58); doc.line(M,y,W-M,y); y+=3;
-          h.slice(0,20).forEach(e=>{
-            if(y>278){ doc.addPage(); doc.setFillColor(5,10,14); doc.rect(0,0,W,297,'F'); y=20; }
-            const sc=e.score>=80?[0,255,157]:e.score>=50?[255,184,0]:[255,61,113];
-            doc.setTextColor(200,230,245); doc.setFont('helvetica','normal'); doc.setFontSize(7);
-            const urlShort=e.url.length>55?e.url.slice(0,52)+'…':e.url;
-            doc.text(urlShort,M,y);
-            doc.setTextColor(...sc); doc.text(String(e.score),M+cols[0],y);
-            doc.setTextColor(...sc); doc.text(e.verdict,M+cols[0]+cols[1],y);
-            doc.setTextColor(74,122,150); doc.text(e.date,M+cols[0]+cols[1]+cols[2],y);
-            y+=5;
-          });
+          y+=fixLines.length*3.5;
         }
-      }
-
-      // ── FOOTER ──
-      const pages=doc.getNumberOfPages();
-      for(let i=1;i<=pages;i++){
-        doc.setPage(i);
-        doc.setFillColor(5,10,14); doc.rect(0,285,W,12,'F');
-        doc.setFillColor(0,229,255); doc.rect(0,285,W,0.5,'F');
-        doc.setTextColor(74,122,150); doc.setFontSize(6.5); doc.setFont('helvetica','normal');
-        doc.text('WebScan Security Platform — CONFIDENCIAL — Generado el '+new Date().toLocaleString('es-ES'),M,291);
-        doc.text('Página '+i+' de '+pages,W-M,291,{align:'right'});
-      }
-
-      doc.save('webscan-auditoria-'+new Date().toISOString().slice(0,10)+'.pdf');
-      st.style.display='none';
-    }catch(err){
-      st.style.display='none';
-      showToolError('pdfError','Error al generar el PDF: '+err.message+'. Asegúrate de que jsPDF está cargado.');
+        const refs=Object.entries(f.refs||{}).filter(([,v])=>v&&v!=='—').map(([k,v])=>k.toUpperCase()+': '+v).join('  ');
+        if(refs){
+          doc.setTextColor(42,72,96); doc.setFontSize(6);
+          doc.text(refs,M+4,y);
+          y+=3.5;
+        }
+        y+=3; doc.setDrawColor(15,42,58); doc.line(M,y,W-M,y); y+=3;
+      });
     }
-  },100);
+
+    // ── CUMPLIMIENTO ──
+    if(standards.length){
+      checkY(16);
+      y+=6;
+      doc.setFillColor(15,42,58); doc.rect(M,y,TW,7,'F');
+      doc.setTextColor(0,229,255); doc.setFontSize(9); doc.setFont('helvetica','bold');
+      doc.text('EVALUACIÓN DE CUMPLIMIENTO NORMATIVO',M+3,y+5);
+      y+=11;
+
+      standards.forEach(std=>{
+        checkY(12);
+        const key=std.includes('SOC')?'soc2':std.includes('PCI')?'pci':'iso';
+        const issues=(_lastVulnData?.findings||[]).filter(f=>f.refs?.[key]&&f.refs[key]!=='—');
+        const ok=issues.length===0;
+        doc.setFillColor(ok?0:50, ok?30:10, ok?20:10);
+        doc.rect(M,y,TW,9,'F');
+        doc.setTextColor(ok?0:255, ok?200:61, ok?100:113);
+        doc.setFontSize(8); doc.setFont('helvetica','bold');
+        doc.text(std,M+3,y+6);
+        doc.text(ok?'✓ CONFORME':'✗ NO CONFORME',W-M-3,y+6,{align:'right'});
+        y+=10;
+        if(!ok){
+          doc.setTextColor(74,122,150); doc.setFontSize(7); doc.setFont('helvetica','normal');
+          issues.slice(0,3).forEach(f=>{ doc.text('• '+f.name,M+5,y); y+=3.5; });
+          if(issues.length>3){ doc.text('• … y '+(issues.length-3)+' más',M+5,y); y+=3.5; }
+        }
+        y+=2;
+      });
+    }
+
+    // ── HISTORIAL ──
+    if(document.getElementById('pdfOptHistory')?.checked){
+      const h=getUserHistory();
+      if(h.length){
+        checkY(16);
+        y+=6;
+        doc.setFillColor(15,42,58); doc.rect(M,y,TW,7,'F');
+        doc.setTextColor(0,229,255); doc.setFontSize(9); doc.setFont('helvetica','bold');
+        doc.text('HISTORIAL DE ANÁLISIS (últimos '+Math.min(h.length,20)+')',M+3,y+5);
+        y+=11;
+        // Cabecera tabla
+        doc.setTextColor(74,122,150); doc.setFontSize(7); doc.setFont('helvetica','bold');
+        doc.text('URL',M,y); doc.text('SCORE',M+TW*0.55,y); doc.text('VEREDICTO',M+TW*0.65,y); doc.text('FECHA',M+TW*0.82,y);
+        y+=4; doc.setDrawColor(15,42,58); doc.line(M,y,W-M,y); y+=3;
+
+        h.slice(0,20).forEach(e=>{
+          checkY(5);
+          const sc=e.score>=80?[0,200,120]:e.score>=50?[255,184,0]:[255,61,113];
+          doc.setTextColor(180,210,230); doc.setFont('helvetica','normal'); doc.setFontSize(6.5);
+          const urlShort=(e.url||'').length>48?(e.url||'').slice(0,45)+'…':(e.url||'');
+          doc.text(urlShort,M,y);
+          doc.setTextColor(...sc); doc.text(String(e.score||''),M+TW*0.55,y);
+          doc.text(e.verdict||'',M+TW*0.65,y);
+          doc.setTextColor(74,122,150); doc.text(e.date||'',M+TW*0.82,y);
+          y+=4.5;
+        });
+      }
+    }
+
+    // ── FOOTER en todas las páginas ──
+    const pages=doc.getNumberOfPages();
+    for(let i=1;i<=pages;i++){
+      doc.setPage(i);
+      doc.setFillColor(5,10,14); doc.rect(0,282,W,15,'F');
+      doc.setFillColor(0,229,255); doc.rect(0,282,W,0.5,'F');
+      doc.setTextColor(74,122,150); doc.setFontSize(6.5); doc.setFont('helvetica','normal');
+      doc.text('WebScan Security Platform — CONFIDENCIAL — '+new Date().toLocaleString('es-ES'),M,289);
+      doc.text('Página '+i+' / '+pages,W-M,289,{align:'right'});
+    }
+
+    doc.save('webscan-auditoria-'+new Date().toISOString().slice(0,10)+'.pdf');
+    st.style.display='none';
+
+  }catch(err){
+    document.getElementById('pdfStatus').style.display='none';
+    showToolError('pdfError','Error al generar el PDF: '+err.message);
+    console.error('exportPDF error:',err);
+  }
 }
 
 // ════════════════════════════════
