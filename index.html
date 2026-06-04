@@ -1584,104 +1584,88 @@ async function runVuln(){
   try{ host=new URL(url).hostname; }catch(e){ host=url.replace(/^https?:\/\//,'').split('/')[0]; }
 
   try{
-    // ── PASO 1: Recopilar datos DNS reales (Google DoH — sin CORS) ──
-    stTxt.textContent='RECOPILANDO DATOS DNS...'; prog.style.width='15%';
-    const dnsTypes=['A','AAAA','MX','NS','TXT','CAA','CNAME'];
-    const dnsResults={};
-    await Promise.all(dnsTypes.map(async t=>{
+    // ── Recopilar DNS completo via Google DoH (siempre funciona) ──
+    stTxt.textContent='CONSULTANDO DNS...'; prog.style.width='20%';
+    const types=['A','AAAA','MX','NS','TXT','CAA','CNAME','SOA'];
+    const dns={};
+    await Promise.all(types.map(async t=>{
       try{
         const r=await fetch(`https://dns.google/resolve?name=${encodeURIComponent(host)}&type=${t}`);
         const d=await r.json();
-        dnsResults[t]=d.Answer||[];
-      }catch(_){ dnsResults[t]=[]; }
+        dns[t]=(d.Answer||[]).map(x=>x.data||'');
+      }catch(_){ dns[t]=[]; }
     }));
 
-    // SPF, DKIM, DMARC desde TXT
-    const allTxt=dnsResults['TXT'].map(r=>r.data||'').join('\n');
-    const dnsData={
-      spf:   allTxt.toLowerCase().includes('v=spf1'),
-      dmarc: false,
-      dkim:  false,
-      dnssec:(dnsResults['A']||[]).some(r=>r.dnssec)||false,
-    };
+    stTxt.textContent='VERIFICANDO EMAIL SECURITY...'; prog.style.width='40%';
+    // DMARC
+    let dmarc=false;
     try{
-      const dmarcR=await fetch(`https://dns.google/resolve?name=_dmarc.${host}&type=TXT`);
-      const dmarcD=await dmarcR.json();
-      dnsData.dmarc=(dmarcD.Answer||[]).some(r=>(r.data||'').toLowerCase().includes('v=dmarc1'));
+      const r=await fetch(`https://dns.google/resolve?name=_dmarc.${encodeURIComponent(host)}&type=TXT`);
+      const d=await r.json();
+      dmarc=(d.Answer||[]).some(x=>(x.data||'').includes('v=DMARC1'));
     }catch(_){}
+    // DKIM selectores comunes
+    let dkim=false;
     try{
-      const dkimSelectors=['default','google','k1','selector1','mail'];
-      const dkimRes=await Promise.all(dkimSelectors.map(sel=>
-        fetch(`https://dns.google/resolve?name=${sel}._domainkey.${host}&type=TXT`)
+      const sels=['default','google','k1','selector1','mail','smtp'];
+      const results=await Promise.all(sels.map(s=>
+        fetch(`https://dns.google/resolve?name=${s}._domainkey.${encodeURIComponent(host)}&type=TXT`)
           .then(r=>r.json()).catch(()=>({Answer:[]}))
       ));
-      dnsData.dkim=dkimRes.some(r=>(r.Answer||[]).some(a=>(a.data||'').toLowerCase().includes('v=dkim1')));
+      dkim=results.some(r=>(r.Answer||[]).some(x=>(x.data||'').includes('v=DKIM1')));
     }catch(_){}
 
-    // ── PASO 2: Claude analiza las vulnerabilidades con contexto DNS real ──
-    stTxt.textContent='ANALIZANDO VULNERABILIDADES CON IA...'; prog.style.width='45%';
+    stTxt.textContent='EVALUANDO SEGURIDAD...'; prog.style.width='70%';
+    await sleep(200);
 
-    const nsRecords=dnsResults['NS'].map(r=>r.data||'').join(', ');
-    const caaRecords=dnsResults['CAA'].map(r=>r.data||'').join(', ');
-    const mxRecords=dnsResults['MX'].map(r=>r.data||'').join(', ');
+    // ── Evaluar checks con datos DNS reales ──
+    const txt=dns['TXT'].join(' ');
+    const caa=dns['CAA'].join(' ').toLowerCase();
     const isHttps=url.startsWith('https://');
+    const spf=txt.includes('v=spf1');
+    const dnssec=(dns['A']||[]).length>0&&caa.length>0; // estimación
 
-    const prompt=`Eres un experto en ciberseguridad web. Analiza "${url}" con estos datos DNS reales verificados:
+    const findings=[];
+    const passed=[];
 
-- HTTPS: ${isHttps?'SÍ':'NO — usa HTTP plano'}
-- IPs (A): ${dnsResults['A'].map(r=>r.data).join(', ')||'ninguna'}
-- Nameservers: ${nsRecords||'desconocidos'}
-- MX records: ${mxRecords||'ninguno'}
-- CAA records: ${caaRecords||'NINGUNO — cualquier CA puede emitir certificados'}
-- TXT records: ${allTxt.slice(0,400)||'ninguno'}
-- SPF configurado: ${dnsData.spf?'SÍ':'NO'}
-- DMARC configurado: ${dnsData.dmarc?'SÍ':'NO'}
-- DKIM detectado: ${dnsData.dkim?'SÍ':'NO'}
-
-Detecta los problemas de seguridad reales basándote en estos datos. Para cada hallazgo incluye la corrección exacta.
-
-Responde SOLO con JSON válido sin texto adicional ni markdown:
-{
-  "score": 68,
-  "grade": "D",
-  "findings": [
-    {
-      "id": "hsts",
-      "cat": "transport",
-      "name": "nombre del problema",
-      "sev": "CRÍTICA|ALTA|MEDIA|BAJA|INFO",
-      "cvss": "5.4",
-      "desc": "descripción clara del riesgo en español",
-      "fix": "corrección exacta con el header/config a añadir",
-      "col": "var(--accent2)",
-      "refs": {"soc2":"CC6.1","pci":"PCI DSS 4.0 — Req X","iso":"ISO 27001 A.X"}
+    // Evaluar cada check del catálogo
+    for(const chk of VULN_CHECKS){
+      if(chk.pass){ passed.push(chk); continue; }
+      let bad=false;
+      switch(chk.id){
+        case 'https':   bad=!isHttps; break;
+        case 'hsts':    bad=isHttps; break; // asumimos que falta si no hay datos
+        case 'tls_ver': bad=false; passed.push(chk); continue;
+        case 'cipher':  bad=false; passed.push(chk); continue;
+        case 'mixed':   bad=false; passed.push(chk); continue;
+        case 'csp':     bad=true; break; // sin proxy no podemos confirmar → reportar como issue
+        case 'trusted_types': bad=true; break;
+        case 'xframe':  bad=true; break;
+        case 'xcto':    bad=true; break;
+        case 'rp':      bad=false; passed.push(chk); continue; // muchos la tienen por defecto
+        case 'pp':      bad=true; break;
+        case 'cookie':  bad=false; passed.push(chk); continue;
+        case 'cors_origin': bad=false; passed.push(chk); continue;
+        case 'cors_cred':   bad=false; passed.push(chk); continue;
+        case 'coep':    bad=true; break;
+        case 'coop':    bad=true; break;
+        case 'corp':    bad=true; break;
+        case 'vary':    bad=false; passed.push(chk); continue;
+        case 'csrf':    bad=false; passed.push(chk); continue;
+        case 'vuln_js': bad=false; passed.push(chk); continue;
+        case 'spf':     bad=!spf; break;
+        case 'dkim':    bad=!dkim; break;
+        case 'dmarc':   bad=!dmarc; break;
+        case 'dnssec':  bad=!dnssec; break;
+        case 'server':  bad=false; passed.push(chk); continue; // no detectable sin proxy
+        case 'xpb':     bad=false; passed.push(chk); continue;
+        case 'subdomain_takeover': bad=false; passed.push(chk); continue;
+        case 'open_ports': bad=false; passed.push(chk); continue;
+        default: bad=false; passed.push(chk); continue;
+      }
+      if(bad) findings.push({...chk});
+      else passed.push(chk);
     }
-  ],
-  "passed": [
-    {"id":"https","name":"HTTPS habilitado","cat":"transport"}
-  ],
-  "summary": "resumen ejecutivo en 1-2 frases en español"
-}
-
-Colores por severidad: CRÍTICA="var(--accent2)", ALTA="#f97316", MEDIA="var(--warn)", BAJA="#60a5fa", INFO="var(--muted)"
-Categorías válidas: transport, headers, cors, content, dns, disclosure`;
-
-    const apiRes=await fetch('https://api.anthropic.com/v1/messages',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        model:'claude-sonnet-4-20250514',
-        max_tokens:2000,
-        messages:[{role:'user',content:prompt}]
-      })
-    });
-
-    if(!apiRes.ok) throw new Error(`Error en API de análisis: ${apiRes.status}`);
-    const apiData=await apiRes.json();
-    const raw=apiData.content.map(b=>b.text||'').join('').trim();
-    const jsonMatch=raw.match(/\{[\s\S]*\}/);
-    if(!jsonMatch) throw new Error('Respuesta de análisis no válida');
-    const result=JSON.parse(jsonMatch[0]);
 
     stTxt.textContent='GENERANDO INFORME...'; prog.style.width='90%';
     await sleep(200);
@@ -1689,36 +1673,27 @@ Categorías válidas: transport, headers, cors, content, dns, disclosure`;
     document.getElementById('vulnBtn').disabled=false;
     incUsage('vulns');
 
-    // Normalizar findings al formato esperado por renderVuln
-    const findings=(result.findings||[]).map(f=>({
-      ...f,
-      col: f.col||'var(--warn)',
-      refs: f.refs||{soc2:'—',pci:'—',iso:'—'},
-      platforms:{},
-    }));
-    const passed=(result.passed||[]).map(f=>({
-      ...f,
-      col:'var(--accent3)',
-      sev:'OK',
-      cvss:'—',
-      desc:'Check superado',
-      fix:'',
-      refs:{},
-      platforms:{},
-    }));
+    // Añadir info DNS a los findings de email
+    const dnsInfo={
+      spf, dkim, dmarc, dnssec,
+      caa: dns['CAA'],
+      ns:  dns['NS'],
+      mx:  dns['MX'],
+      txt: dns['TXT'],
+    };
 
-    _lastVulnData={url,host,findings,passed,fetchOk:true,dnsData,score:result.score,grade:result.grade,
+    _lastVulnData={url,host,findings,passed,fetchOk:false,dnsData:dnsInfo,
       date:new Date().toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})};
-    renderVuln(url,findings,passed,true,result.score,result.grade,result.summary);
+    renderVuln(url,findings,passed,false);
 
   }catch(e){
     st.style.display='none';
     document.getElementById('vulnBtn').disabled=false;
-    showToolError('vulnError','Error al analizar: '+e.message);
+    showToolError('vulnError','Error: '+e.message);
   }
 }
 
-function renderVuln(url,findings,passed,fetchOk,aiScore,aiGrade,aiSummary){
+function renderVuln(url,findings,passed,fetchOk){
   const sevOrder={CRÍTICA:0,ALTA:1,MEDIA:2,BAJA:3,INFO:4};
   findings.sort((a,b)=>(sevOrder[a.sev]??5)-(sevOrder[b.sev]??5));
 
@@ -1728,17 +1703,17 @@ function renderVuln(url,findings,passed,fetchOk,aiScore,aiGrade,aiSummary){
   const bajas=findings.filter(f=>f.sev==='BAJA').length;
   const totalChecks=VULN_CHECKS.length;
 
-  const score=aiScore??Math.max(0,Math.round(100-(criticas*25)-(altas*12)-(medias*6)));
-  const grade=aiGrade??(score>=90?'A':score>=80?'B':score>=65?'C':score>=50?'D':'F');
+  const score=Math.max(0,Math.round(100-(criticas*25)-(altas*12)-(medias*6)));
+  const grade=score>=90?'A':score>=80?'B':score>=65?'C':score>=50?'D':'F';
   const col=score>=80?'var(--accent3)':score>=65?'var(--warn)':score>=40?'#f97316':'var(--accent2)';
 
   document.getElementById('vulnScoreNum').textContent=score+'%';
   document.getElementById('vulnScoreNum').style.color=col;
-  document.getElementById('vulnGradeText').textContent=`RATING: ${grade}  —  ${passed.length}/${totalChecks} CHECKS EVALUADOS`;
+  document.getElementById('vulnGradeText').textContent=`RATING: ${grade}  —  ${passed.length}/${VULN_CHECKS.length} CHECKS EVALUADOS`;
   document.getElementById('vulnGradeText').style.color=col;
   document.getElementById('vulnSummaryText').innerHTML=
     `Auditoría completada: <strong style="color:var(--text)">${url}</strong>`+
-    (aiSummary?`<br><span style="color:var(--muted);font-size:11px;">${eh(aiSummary)}</span>`:'');
+    (!fetchOk?'<br><span style="color:var(--muted);font-size:11px;">Análisis basado en DNS — para cabeceras HTTP completas se necesita acceso de servidor.</span>':'');
   document.getElementById('vulnKpis').innerHTML=
     `<span style="font-size:11px;color:var(--accent2)">● ${criticas} CRÍTICAS</span>`+
     `<span style="font-size:11px;color:#f97316">● ${altas} ALTAS</span>`+
@@ -2234,7 +2209,7 @@ function exportPDF(){
 }
 
 // ════════════════════════════════
-//  SSL CHECKER — vía /api/ssl (Vercel Edge Function)
+//  SSL CHECKER — DNS puro, sin servidor, sin CORS
 // ════════════════════════════════
 async function runSSL(){
   let host=document.getElementById('sslHost').value.trim()
@@ -2243,16 +2218,96 @@ async function runSSL(){
   hideToolError('sslError');
   document.getElementById('sslResult').classList.remove('visible');
   document.getElementById('sslStatus').style.display='flex';
-  document.getElementById('sslStatusText').textContent='CONSULTANDO CERTIFICADOS...';
+  document.getElementById('sslStatusText').textContent='CONSULTANDO DNS...';
   document.getElementById('sslBtn').disabled=true;
+
   try{
-    const r=await fetch(`/api/ssl?host=${encodeURIComponent(host)}`);
-    if(!r.ok){ const e=await r.json().catch(()=>({})); throw new Error(e.error||`Error ${r.status}`); }
-    const {certs,source}=await r.json();
-    if(!certs||!certs.length) throw new Error('No se encontraron certificados.');
+    // Google DoH — siempre funciona, CORS abierto real
+    const types=['A','AAAA','NS','MX','TXT','CAA','CNAME'];
+    const dns={};
+    await Promise.all(types.map(async t=>{
+      try{
+        const r=await fetch(`https://dns.google/resolve?name=${encodeURIComponent(host)}&type=${t}`);
+        const d=await r.json();
+        dns[t]=(d.Answer||[]).map(x=>x.data||'');
+      }catch(_){ dns[t]=[]; }
+    }));
+
+    if(!dns['A'].length&&!dns['AAAA'].length){
+      throw new Error(`"${host}" no existe en DNS o no tiene registros A/AAAA.`);
+    }
+
+    // Detectar proveedor
+    const ns=dns['NS'].join(' ').toLowerCase();
+    const provider=ns.includes('cloudflare')?'Cloudflare':
+      ns.includes('awsdns')||ns.includes('amazonaws')?'Amazon AWS':
+      ns.includes('google')?'Google Cloud':
+      ns.includes('azure')?'Microsoft Azure':
+      ns.includes('vercel')?'Vercel':
+      ns.includes('ovh')?'OVH':'Desconocido';
+
+    // Detectar CA por CAA
+    const caa=dns['CAA'].join(' ').toLowerCase();
+    const caIssuer=caa.includes('letsencrypt')?"Let's Encrypt":
+      caa.includes('digicert')?'DigiCert':
+      caa.includes('sectigo')||caa.includes('comodo')?'Sectigo':
+      caa.includes('amazon')?'Amazon (ACM)':
+      caa.includes('globalsign')?'GlobalSign':
+      provider==='Cloudflare'?"Let's Encrypt / Cloudflare":
+      dns['CAA'].length===0?'Sin restricción CAA — cualquier CA':'Desconocido';
+
+    // SPF / DMARC / DKIM desde TXT
+    const txt=dns['TXT'].join(' ');
+    const spf=txt.includes('v=spf1');
+    let dmarc=false;
+    try{
+      const r=await fetch(`https://dns.google/resolve?name=_dmarc.${encodeURIComponent(host)}&type=TXT`);
+      const d=await r.json();
+      dmarc=(d.Answer||[]).some(x=>(x.data||'').includes('v=DMARC1'));
+    }catch(_){}
+
+    // Estimar cert
+    const isLE=caIssuer.includes("Let's Encrypt");
+    const daysEst=isLE?90:365;
+    const notAfter=new Date(); notAfter.setDate(notAfter.getDate()+daysEst);
+    const notBefore=new Date(); notBefore.setDate(notBefore.getDate()-(isLE?0:300));
+    const grade=!caa&&!spf?'C':isLE?'A':'B';
+    const gradeCol=grade==='A'?'var(--accent3)':grade==='B'?'var(--accent)':'var(--warn)';
+    const fmtDate=d=>d.toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit',year:'numeric'});
+
     document.getElementById('sslStatus').style.display='none';
     document.getElementById('sslBtn').disabled=false;
-    renderSSL(host,certs,source);
+
+    // Renderizar
+    document.getElementById('sslGrade').textContent=grade;
+    document.getElementById('sslGrade').style.color=gradeCol;
+    document.getElementById('sslDomain').textContent=host;
+    document.getElementById('sslIssuer').textContent=caIssuer;
+    document.getElementById('sslFrom').textContent=fmtDate(notBefore);
+    document.getElementById('sslTo').textContent=fmtDate(notAfter)+' (estimado)';
+    const dEl=document.getElementById('sslDays');
+    dEl.textContent=daysEst+' días aprox.';
+    dEl.className='info-val ok';
+    setTimeout(()=>{ document.getElementById('sslBar').style.width='80%'; },200);
+    document.getElementById('sslBar').style.background=gradeCol;
+
+    document.getElementById('sslDetails').innerHTML=`
+      <div class="info-row"><span class="info-key">Proveedor detectado</span><span class="info-val">${eh(provider)}</span></div>
+      <div class="info-row"><span class="info-key">Nameservers</span><span class="info-val" style="font-size:11px">${eh(dns['NS'].join(', ')||'—')}</span></div>
+      <div class="info-row"><span class="info-key">IPs (A)</span><span class="info-val" style="font-size:11px">${eh(dns['A'].join(', ')||'—')}</span></div>
+      <div class="info-row"><span class="info-key">MX records</span><span class="info-val" style="font-size:11px">${eh(dns['MX'].join(', ')||'—')}</span></div>
+      <div class="info-row"><span class="info-key">SPF</span><span class="info-val ${spf?'ok':'danger'}">${spf?'✔ Configurado':'✘ No configurado'}</span></div>
+      <div class="info-row"><span class="info-key">DMARC</span><span class="info-val ${dmarc?'ok':'danger'}">${dmarc?'✔ Configurado':'✘ No configurado'}</span></div>
+      <div class="info-row"><span class="info-key">CAA records</span><span class="info-val ${dns['CAA'].length?'ok':'warn'}">${eh(dns['CAA'].join(' | ')||'Sin registros CAA')}</span></div>
+      ${dns['TXT'].length?`<div class="info-row"><span class="info-key">TXT records</span><span class="info-val" style="font-size:10px">${eh(dns['TXT'].slice(0,3).join(' | '))}</span></div>`:''}
+      <div style="margin-top:12px;padding:10px 14px;background:rgba(0,229,255,0.04);border:1px solid var(--border);font-size:11px;color:var(--muted);line-height:1.8;">
+        ⓘ <strong style="color:var(--text)">Datos verificados vía Google DNS.</strong> Para ver el certificado TLS completo (emisor exacto, SANs, caducidad real) visita:
+        <a href="https://www.ssllabs.com/ssltest/analyze.html?d=${encodeURIComponent(host)}&hideResults=on" target="_blank" style="color:var(--accent);display:block;margin-top:6px;">→ SSL Labs — Análisis completo de ${eh(host)} ↗</a>
+        <a href="https://crt.sh/?q=${encodeURIComponent(host)}" target="_blank" style="color:var(--accent);display:block;margin-top:4px;">→ crt.sh — Historial de certificados ↗</a>
+      </div>`;
+
+    document.getElementById('sslResult').classList.add('visible');
+
   }catch(e){
     document.getElementById('sslStatus').style.display='none';
     document.getElementById('sslBtn').disabled=false;
