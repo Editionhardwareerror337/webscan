@@ -1168,14 +1168,24 @@ function urlToVTId(url){ return btoa(unescape(encodeURIComponent(url))).replace(
 // ════════════════════════════════
 //  VIRUSTOTAL API
 // ════════════════════════════════
-const VT_BASE='https://www.virustotal.com/api/v3';
+const VT_BASE='/api/vt';
 async function vtPost(endpoint,body,apiKey){
-  const res=await fetch(VT_BASE+endpoint,{method:'POST',headers:{'x-apikey':apiKey,'Content-Type':'application/x-www-form-urlencoded'},body});
+  const res=await fetch(`${VT_BASE}?action=scan`,{
+    method:'POST',
+    headers:{'Content-Type':'application/x-www-form-urlencoded','x-apikey':apiKey},
+    body
+  });
   if(!res.ok){ const e=await res.json().catch(()=>({})); if(res.status===429) throw new Error('Límite de la API gratuita alcanzado. Espera 1 minuto.'); if(res.status===401) throw new Error('API Key inválida.'); throw new Error(e.error?.message||`VirusTotal error ${res.status}`); }
   return res.json();
 }
 async function vtGet(endpoint,apiKey){
-  const res=await fetch(VT_BASE+endpoint,{headers:{'x-apikey':apiKey}});
+  const isAnalysis=endpoint.startsWith('/analyses/');
+  const isUrl=endpoint.startsWith('/urls/');
+  const action=isAnalysis?'analysis':isUrl?'url_report':'analysis';
+  const id=endpoint.split('/').pop();
+  const res=await fetch(`${VT_BASE}?action=${action}&id=${encodeURIComponent(id)}`,{
+    headers:{'x-apikey':apiKey}
+  });
   if(!res.ok){ const e=await res.json().catch(()=>({})); if(res.status===429) throw new Error('Demasiadas peticiones a VirusTotal.'); if(res.status===401) throw new Error('API Key inválida.'); throw new Error(e.error?.message||`VirusTotal error ${res.status}`); }
   return res.json();
 }
